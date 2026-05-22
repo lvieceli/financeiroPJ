@@ -1,0 +1,1593 @@
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Padel Joaçaba — Controle Financeiro</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script type="module">
+import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import{getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import{getFirestore,doc,setDoc,getDoc,onSnapshot,collection,addDoc,query,orderBy,getDocs,updateDoc,deleteDoc,serverTimestamp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig={
+  apiKey:"AIzaSyCgtG8HwroggFBC_bvEr18IyoJVUNJGteE",
+  authDomain:"financeiropj-ca261.firebaseapp.com",
+  projectId:"financeiropj-ca261",
+  storageBucket:"financeiropj-ca261.firebasestorage.app",
+  messagingSenderId:"363181832474",
+  appId:"1:363181832474:web:9f5e15705c666e513b94a3"
+};
+
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app);
+const db=getFirestore(app);
+const brl=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
+const short=v=>{const n=Math.round(v||0);if(Math.abs(n)>=1000)return'R$'+(n/1000).toFixed(1)+'k';return'R$'+n};
+const fmtHora=()=>new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+const fmtData=()=>{const d=new Date();return d.getDate().toString().padStart(2,'0')+'_'+(d.getMonth()+1).toString().padStart(2,'0')+'_'+d.getFullYear();}
+const fmtDataId=()=>new Date().toLocaleDateString('pt-BR').replace(/\//g,'_');
+const hoje=()=>new Date();
+const diaSemana=()=>new Date().getDay(); // 0=dom,1=seg...6=sab
+const diaDoMes=()=>new Date().getDate();
+const mesAtual=()=>new Date().getMonth()+1;
+
+let cm='Mai';
+let unsubscribe=null;
+let unsubChat=null;
+let focusCount=0;
+let currentUser=null;
+let currentPerfil=null;
+let currentNome=null;
+
+document.addEventListener('focusin',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))focusCount++;});
+document.addEventListener('focusout',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))focusCount=Math.max(0,focusCount-1);});
+
+// ====== ESTRUTURA DE DADOS ======
+const defData=()=>({
+  caixa:Array.from({length:31},(_,i)=>({dia:i+1,abert:0,fech:0,retir:0,cartao:0,pix:0,outros:0})),
+  fixas:[
+    {id:1,cat:'Espaços Publicitários',itens:[{id:1,nome:'Q1 Nippur',valor:1100,parcela:'',rec:0},{id:2,nome:'Q3 Ligia',valor:750,parcela:'',rec:0},{id:3,nome:'Q4 Espazzo Denti',valor:1200,parcela:'',rec:0},{id:4,nome:'Q5 Tozzo',valor:1000,parcela:'',rec:0}]},
+    {id:2,cat:'Aluguel de Espaços',itens:[{id:1,nome:'Loja',valor:1200,parcela:'',rec:0},{id:2,nome:'Neudir (Bar)',valor:1200,parcela:'',rec:0}]},
+    {id:3,cat:'Comissões de Professores',itens:[{id:1,nome:'Gustavo',valor:0,parcela:'',rec:0},{id:2,nome:'Leandro',valor:0,parcela:'',rec:0},{id:3,nome:'Ana Flávia',valor:0,parcela:'',rec:0},{id:4,nome:'Lucas',valor:0,parcela:'',rec:0},{id:5,nome:'João',valor:0,parcela:'',rec:0}]}
+  ],
+  ocasionais:[],
+  despesas:[
+    {id:1,cat:'Pessoal',cor:'#a855f7',itens:[{id:1,nome:'Solange',valor:0,pago:false,data:''},{id:2,nome:'Manu',valor:0,pago:false,data:''},{id:3,nome:'João',valor:0,pago:false,data:''},{id:4,nome:'Retirada Sócios',valor:0,pago:false,data:''}]},
+    {id:2,cat:'Impostos',cor:'#ef4444',itens:[{id:1,nome:'DARF DCTF Web',valor:0,pago:false,data:''},{id:2,nome:'DARF CRF',valor:0,pago:false,data:''},{id:3,nome:'DARF IR',valor:0,pago:false,data:''},{id:4,nome:'ISS',valor:0,pago:false,data:''},{id:5,nome:'SIMAE',valor:0,pago:false,data:''},{id:6,nome:'Guia IRRF',valor:0,pago:false,data:''},{id:7,nome:'Simples Nacional',valor:0,pago:false,data:''}]},
+    {id:3,cat:'Operacional',cor:'#3b82f6',itens:[{id:1,nome:'CELESC',valor:0,pago:false,data:''},{id:2,nome:'IP Fixo',valor:0,pago:false,data:''},{id:3,nome:'Alt Internet',valor:0,pago:false,data:''},{id:4,nome:'Nacional',valor:0,pago:false,data:''},{id:5,nome:'Contassesc',valor:0,pago:false,data:''},{id:6,nome:'Gripo NFS-e',valor:0,pago:false,data:''}]},
+    {id:4,cat:'Manutenção',cor:'#f59e0b',itens:[{id:1,nome:'Prod. Limpeza',valor:0,pago:false,data:''},{id:2,nome:'Só Elétrica',valor:0,pago:false,data:''},{id:3,nome:'Eletricista',valor:0,pago:false,data:''},{id:4,nome:'Limger',valor:0,pago:false,data:''}]},
+    {id:5,cat:'Outras',cor:'#8b95b0',itens:[{id:1,nome:'Zanardo',valor:0,pago:false,data:''},{id:2,nome:'Vilson Madeira Troféu',valor:0,pago:false,data:''},{id:3,nome:'Gripo Torneio',valor:0,pago:false,data:''},{id:4,nome:'Gladi Lonas',valor:0,pago:false,data:''},{id:5,nome:'Lonas',valor:0,pago:false,data:''}]}
+  ],
+  // Checklist Admin — só admin vê, nunca zera automático
+  checklistAdmin:[
+    {id:1,nome:'Pagar Simples Nacional',cat:'Impostos',done:false,lembrete:'',ordem:0,criadoEm:'',concluidoEm:''},
+    {id:2,nome:'Emitir notas fiscais',cat:'Fiscal',done:false,lembrete:'',ordem:1,criadoEm:'',concluidoEm:''},
+    {id:3,nome:'Fechar caixa do mês',cat:'Financeiro',done:false,lembrete:'',ordem:2,criadoEm:'',concluidoEm:''},
+    {id:4,nome:'Verificar contratos',cat:'Comercial',done:false,lembrete:'',ordem:3,criadoEm:'',concluidoEm:''},
+    {id:5,nome:'Pagar funcionários',cat:'Pessoal',done:false,lembrete:'',ordem:4,criadoEm:'',concluidoEm:''}
+  ],
+  // Tarefas Fixas — rotina, só admin cria, zeram todo dia/semana/mês
+  tarefasFixas:[
+    {id:1,nome:'Abrir caixa',recorrencia:'diaria',diaSemana:null,diaMes:null,atalho:'abrirCaixa',ordem:0,marcacoesHoje:{}},
+    {id:2,nome:'Fechar caixa',recorrencia:'diaria',diaSemana:null,diaMes:null,atalho:'fecharCaixa',ordem:1,marcacoesHoje:{}},
+    {id:3,nome:'Limpar recepção',recorrencia:'diaria',diaSemana:null,diaMes:null,atalho:'',ordem:2,marcacoesHoje:{}},
+    {id:4,nome:'Verificar quadras',recorrencia:'diaria',diaSemana:null,diaMes:null,atalho:'',ordem:3,marcacoesHoje:{}}
+  ]
+  // Tarefas Avulsas ficam na coleção 'tarefasAvulsas' no Firebase
+});
+
+let data=defData();
+let saveTimer=null;
+
+let ignorarSnapshot=false;
+let ignorarTimer=null;
+
+function save(){
+  const snapshot=JSON.parse(JSON.stringify(data));
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>saveNow(snapshot),800);
+}
+async function saveNow(snapshot){
+  clearTimeout(saveTimer);
+  ignorarSnapshot=true;
+  clearTimeout(ignorarTimer);
+  ignorarTimer=setTimeout(()=>{ignorarSnapshot=false;},3000);
+  const dadosParaSalvar=snapshot||JSON.parse(JSON.stringify(data));
+  console.log('SALVANDO fixas[0].itens[0].nome:',dadosParaSalvar?.fixas?.[0]?.itens?.[0]?.nome);
+  try{await setDoc(doc(db,'meses',cm),dadosParaSalvar);}
+  catch(e){console.error('Erro ao salvar:',e);}
+}
+
+function normalizeCkAdmin(lista){
+  if(!lista||!lista.length)return defData().checklistAdmin;
+  return lista.map((c,i)=>({...c,lembrete:c.lembrete||'',ordem:c.ordem??i,criadoEm:c.criadoEm||'',concluidoEm:c.concluidoEm||''})).sort((a,b)=>a.ordem-b.ordem);
+}
+
+function normalizeTarefasFixas(lista){
+  if(!lista||!lista.length)return defData().tarefasFixas;
+  return lista.map((c,i)=>({...c,recorrencia:c.recorrencia||'diaria',diaSemana:c.diaSemana??null,diaMes:c.diaMes??null,atalho:c.atalho||'',ordem:c.ordem??i,marcacoesHoje:c.marcacoesHoje||{}})).sort((a,b)=>a.ordem-b.ordem);
+}
+
+function applySnap(novo){
+  if(!novo.ocasionais)novo.ocasionais=[];
+  novo.checklistAdmin=normalizeCkAdmin(novo.checklistAdmin);
+  novo.tarefasFixas=normalizeTarefasFixas(novo.tarefasFixas);
+  return novo;
+}
+
+async function loadMonth(month){
+  cm=month;
+  if(unsubscribe){unsubscribe();unsubscribe=null;}
+  showLoading(true);
+  try{
+    const snap=await getDoc(doc(db,'meses',cm));
+    if(snap.exists()){
+      data=applySnap(snap.data());
+    } else {
+      const ordem=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const idx=ordem.indexOf(cm);
+      let base=null;
+      for(let i=idx-1;i>=0;i--){try{const s=await getDoc(doc(db,'meses',ordem[i]));if(s.exists()){base=s.data();break;}}catch(e){}}
+      if(!base){for(let i=idx+1;i<ordem.length;i++){try{const s=await getDoc(doc(db,'meses',ordem[i]));if(s.exists()){base=s.data();break;}}catch(e){}}}
+      if(base){
+        data={
+          caixa:Array.from({length:31},(_,i)=>({dia:i+1,abert:0,fech:0,retir:0,cartao:0,pix:0,outros:0})),
+          fixas:base.fixas.map(cat=>({...cat,itens:cat.itens.map(it=>({...it,rec:0,parcela:it.parcela||''}))})),
+          ocasionais:[],
+          despesas:base.despesas.map(cat=>({...cat,itens:cat.itens.map(it=>({...it,valor:0,pago:false,data:''}))})),
+          checklistAdmin:normalizeCkAdmin(base.checklistAdmin).map(c=>({...c,done:false,concluidoEm:''})),
+          tarefasFixas:normalizeTarefasFixas(base.tarefasFixas).map(c=>({...c,marcacoesHoje:{}}))
+        };
+      } else {data=defData();}
+    }
+    unsubscribe=onSnapshot(doc(db,'meses',cm),snap=>{
+      if(snap.exists()&&focusCount===0&&!ignorarSnapshot){
+        data=applySnap(snap.data());
+        if(isAdmin())renderDashboard();
+      }
+    });
+  }catch(e){console.error(e);data=defData();}
+  showLoading(false);
+  if(isAdmin())renderDashboard();
+  // limpa marcações antigas das tarefas fixas
+  limparMarcacoesAntigas();
+}
+
+// Verifica se tarefas fixas devem aparecer hoje
+function tarefaAtivaHoje(t){
+  const ds=diaSemana(),dm=diaDoMes();
+  if(t.recorrencia==='diaria')return true;
+  if(t.recorrencia==='semanal')return t.diaSemana===ds;
+  if(t.recorrencia==='mensal')return t.diaMes===dm;
+  return false;
+}
+
+// Verifica se tarefa já foi marcada hoje
+function tarefaMarcadaHoje(t){
+  const d=fmtData();
+  return !!(t.marcacoesHoje&&t.marcacoesHoje[d]);
+}
+
+// Limpa marcações que não são de hoje
+async function limparMarcacoesAntigas(){
+  const d=fmtData();
+  let changed=false;
+  (data.tarefasFixas||[]).forEach(t=>{
+    if(t.marcacoesHoje){
+      const keys=Object.keys(t.marcacoesHoje);
+      keys.forEach(k=>{if(k!==d){delete t.marcacoesHoje[k];changed=true;}});
+    }
+  });
+  if(changed)await saveNow();
+}
+
+function showLoading(v){const el=document.getElementById('loadingOverlay');if(el)el.style.display=v?'flex':'none';}
+window.isAdmin=function(){return currentPerfil==='admin';}
+
+function showToast(msg,cor){
+  const t=document.createElement('div');
+  t.style.cssText=`position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${cor||'var(--green)'};color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;font-weight:500;white-space:nowrap`;
+  t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2500);
+}
+
+onAuthStateChanged(auth,async user=>{
+  if(user){
+    currentUser=user;
+    try{
+      const uSnap=await getDoc(doc(db,'usuarios',user.email));
+      if(uSnap.exists()){
+        currentPerfil=uSnap.data().perfil||'funcionario';
+        currentNome=uSnap.data().nome||user.email;
+      } else {
+        currentPerfil='funcionario';
+        currentNome=user.email;
+      }
+      await updateDoc(doc(db,'usuarios',user.email),{ultimoAcesso:serverTimestamp()}).catch(()=>{});
+    }catch(e){currentPerfil='funcionario';currentNome=user.email;}
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('appScreen').style.display='grid';
+    document.getElementById('userEmail').textContent=currentNome;
+    document.getElementById('userPerfil').textContent=isAdmin()?'Admin':'Funcionário';
+    buildSidebar();
+    await loadMonth('Mai');
+    if(isAdmin()){showPage('dashboard');}
+    else{showPage('funcHome');}
+    setTimeout(checkLembretes,1500);
+    initChat();
+  } else {
+    currentUser=null;currentPerfil=null;currentNome=null;
+    document.getElementById('loginScreen').style.display='flex';
+    document.getElementById('appScreen').style.display='none';
+    if(unsubscribe)unsubscribe();
+    if(unsubChat)unsubChat();
+  }
+});
+
+function buildSidebar(){
+  const nav=document.getElementById('navItems');
+  if(isAdmin()){
+    nav.innerHTML=`
+      <div class="nav-section">Geral</div>
+      <div class="nav-item" onclick="showPage('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+      <div class="nav-item" onclick="showPage('caixa')"><i class="ti ti-calendar-stats"></i>Caixa Diário</div>
+      <div class="nav-section">Receitas</div>
+      <div class="nav-item" onclick="showPage('fixas')"><i class="ti ti-repeat"></i>Receitas Fixas</div>
+      <div class="nav-item" onclick="showPage('ocasionais')"><i class="ti ti-bolt"></i>Ocasionais</div>
+      <div class="nav-section">Saídas</div>
+      <div class="nav-item" onclick="showPage('despesas')"><i class="ti ti-receipt"></i>Despesas</div>
+      <div class="nav-section">Operacional</div>
+      <div class="nav-item" onclick="showPage('caixaDinheiro')"><i class="ti ti-cash"></i>Caixa Dinheiro <span class="nav-badge" id="caixaBadge"></span></div>
+      <div class="nav-item" onclick="showPage('ponto')"><i class="ti ti-clock"></i>Ponto</div>
+      <div class="nav-section">Gestão</div>
+      <div class="nav-item" onclick="showPage('checkAdmin')"><i class="ti ti-checkbox"></i>Checklist Admin</div>
+      <div class="nav-item" onclick="showPage('checkGeral')"><i class="ti ti-list-check"></i>Checklist Geral</div>
+      <div class="nav-item" onclick="showPage('chat')"><i class="ti ti-message-circle"></i>Chat</div>
+      <div class="nav-item" onclick="showPage('perfis')"><i class="ti ti-users"></i>Perfis</div>`;
+  } else {
+    nav.innerHTML=`
+      <div class="nav-section">Meu Dia</div>
+      <div class="nav-item" onclick="showPage('funcHome')"><i class="ti ti-home"></i>Início</div>
+      <div class="nav-item" onclick="showPage('caixaDinheiro')"><i class="ti ti-cash"></i>Caixa Dinheiro</div>
+      <div class="nav-item" onclick="showPage('ponto')"><i class="ti ti-clock"></i>Meu Ponto</div>
+      <div class="nav-section">Tarefas</div>
+      <div class="nav-item" onclick="showPage('checkGeral')"><i class="ti ti-list-check"></i>Checklist</div>
+      <div class="nav-item" onclick="showPage('chat')"><i class="ti ti-message-circle"></i>Chat</div>`;
+  }
+  updateCaixaBadge();
+}
+
+window.doLogin=async function(){
+  const email=document.getElementById('loginEmail').value;
+  const pass=document.getElementById('loginPass').value;
+  const err=document.getElementById('loginErr');err.textContent='';
+  try{await signInWithEmailAndPassword(auth,email,pass);}
+  catch(e){err.textContent='Email ou senha incorretos.';}
+};
+window.doLogout=async function(){if(unsubscribe)unsubscribe();if(unsubChat)unsubChat();await signOut(auth);};
+window.loginKeydown=function(e){if(e.key==='Enter')window.doLogin();};
+window.openSidebar=function(){document.querySelector('.sidebar').classList.add('open');document.getElementById('sideOverlay').classList.add('open');};
+window.closeSidebar=function(){document.querySelector('.sidebar').classList.remove('open');document.getElementById('sideOverlay').classList.remove('open');};
+
+function getResul(d){return(d.fech||0)-(d.abert||0);}
+function getTotalDia(d){return getResul(d)+(d.cartao||0)+(d.pix||0)+(d.outros||0);}
+function getProxAbert(d){return Math.max(0,(d.fech||0)-(d.retir||0));}
+
+function isHoje(l){
+  if(!l)return false;
+  const p=l.split('/');if(p.length<2)return false;
+  const h=new Date();
+  return parseInt(p[0])===h.getDate()&&parseInt(p[1])===h.getMonth()+1;
+}
+function isVencido(l){
+  if(!l)return false;
+  const p=l.split('/');if(p.length<2)return false;
+  const d=parseInt(p[0]),m=parseInt(p[1]);if(isNaN(d)||isNaN(m))return false;
+  const h=new Date();return m<h.getMonth()+1||(m===h.getMonth()+1&&d<=h.getDate());
+}
+
+function checkLembretes(){
+  const lista=(data.checklistAdmin||[]).filter(c=>!c.done&&isVencido(c.lembrete));
+  if(lista.length&&isAdmin()){
+    const ex=document.getElementById('lembretePopup');if(ex)ex.remove();
+    const p=document.createElement('div');p.id='lembretePopup';
+    p.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--bg2);border:1px solid var(--amber);border-radius:14px;padding:18px 20px;max-width:320px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.4)';
+    p.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><span style="font-size:13px;font-weight:600;color:var(--amber);display:flex;align-items:center;gap:6px"><i class="ti ti-bell-ringing"></i>${lista.length} lembrete${lista.length>1?'s':''} pendente${lista.length>1?'s':''}</span><span onclick="document.getElementById('lembretePopup').remove()" style="cursor:pointer;color:var(--text3);font-size:20px">&times;</span></div>${lista.map(c=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)"><div class="check-box${c.done?' done':''}" onclick="window.toggleCheckAdmin(${c.id})">${c.done?'✓':''}</div><div style="flex:1"><div style="font-size:12px;color:var(--text);font-weight:500">${c.nome}</div><div style="font-size:10px;color:var(--amber)"><i class="ti ti-calendar" style="font-size:10px"></i> ${c.lembrete}</div></div></div>`).join('')}<button onclick="showPage('checkAdmin');document.getElementById('lembretePopup').remove()" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px;font-size:12px"><i class="ti ti-checkbox"></i>Ver checklist</button>`;
+    document.body.appendChild(p);
+  }
+  // verifica tarefas avulsas do dia para TODOS
+  checkAvulsasHoje();
+}
+
+async function checkAvulsasHoje(){
+  try{
+    const hoje=fmtData();
+    const partes=hoje.split('_');
+    const ddmm=partes[0]+'/'+partes[1];
+    const snaps=await getDocs(collection(db,'tarefasAvulsas'));
+    const avulsasHoje=[];
+    snaps.forEach(d=>{
+      const dd={id:d.id,...d.data()};
+      if(dd.data===ddmm&&!dd.done&&!dd.arquivada)avulsasHoje.push(dd);
+    });
+    if(!avulsasHoje.length)return;
+    const ex=document.getElementById('avulsaPopup');if(ex)ex.remove();
+    const p=document.createElement('div');p.id='avulsaPopup';
+    p.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg2);border:2px solid var(--red);border-radius:14px;padding:24px 28px;max-width:360px;width:90%;z-index:9999;box-shadow:0 8px 40px rgba(0,0,0,.6)';
+    p.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><span style="font-size:14px;font-weight:600;color:var(--red);display:flex;align-items:center;gap:8px"><i class="ti ti-alert-circle" style="font-size:20px"></i>${avulsasHoje.length} tarefa${avulsasHoje.length>1?'s':''} para hoje!</span><span onclick="document.getElementById('avulsaPopup').remove()" style="cursor:pointer;color:var(--text3);font-size:22px">&times;</span></div>${avulsasHoje.map(t=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:13px;color:var(--text);font-weight:500">${t.nome}</div><div style="font-size:11px;color:var(--text3);margin-top:2px">criado por ${t.criadoPor||'—'}</div></div>`).join('')}<button onclick="showPage('checkGeral');document.getElementById('avulsaPopup').remove()" class="btn" style="width:100%;justify-content:center;margin-top:14px;font-size:13px;background:var(--red);border-color:var(--red);color:#fff"><i class="ti ti-list-check"></i>Ver tarefas</button>`;
+    document.body.appendChild(p);
+  }catch(e){}
+}
+
+async function updateCaixaBadge(){
+  if(!isAdmin())return;
+  try{
+    const snaps=await getDocs(collection(db,'caixaDinheiro'));
+    let n=0;snaps.forEach(d=>{if(!d.data().aprovado&&d.data().registradoPor)n++;});
+    const b=document.getElementById('caixaBadge');
+    if(b){b.textContent=n>0?n:'';b.style.display=n>0?'inline':'none';}
+  }catch(e){}
+}
+
+// ====== DASHBOARD ======
+function calcTotals(){
+  const tv=data.caixa.reduce((s,d)=>s+getTotalDia(d),0);
+  const dias=data.caixa.filter(d=>getTotalDia(d)>0).length;
+  const fr=data.fixas.reduce((s,cat)=>s+cat.itens.reduce((ss,it)=>ss+(it.rec||0),0),0);
+  const fp=data.fixas.reduce((s,cat)=>s+cat.itens.reduce((ss,it)=>ss+Math.max(0,(it.valor||0)-(it.rec||0)),0),0);
+  const oc=(data.ocasionais||[]).reduce((s,o)=>s+(o.valor||0),0);
+  const tr=tv+fr+oc;
+  const allD=data.despesas.reduce((a,cat)=>a.concat(cat.itens),[]);
+  const td=allD.reduce((s,d)=>s+(d.valor||0),0);
+  const dp=allD.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);
+  const cdA=(data.checklistAdmin||[]).filter(c=>c.done).length;
+  const ctA=(data.checklistAdmin||[]).length;
+  const fixasHoje=(data.tarefasFixas||[]).filter(tarefaAtivaHoje);
+  const fixasMarcadas=fixasHoje.filter(tarefaMarcadaHoje).length;
+  return{tv,dias,fr,fp,oc,tr,td,dp,despPend:td-dp,resultado:tr-td,totalPend:fp,cdA,ctA,fixasHoje:fixasHoje.length,fixasMarcadas};
+}
+
+let rchart=null;
+function renderDashboard(){
+  if(!isAdmin())return;
+  const t=calcTotals();
+  const re=document.getElementById('resLiq');if(!re)return;
+  re.textContent=brl(t.resultado);re.style.color=t.resultado>=0?'var(--green)':'var(--red)';
+  document.getElementById('resRec').textContent=brl(t.tr);
+  document.getElementById('resDesp').textContent=brl(t.td);
+  document.getElementById('resPend').textContent=brl(t.totalPend);
+  document.getElementById('resCheck').textContent=t.cdA+'/'+t.ctA;
+  document.getElementById('kCaixa').textContent=short(t.tv);
+  document.getElementById('kDias').textContent=t.dias+' dias com movimento';
+  document.getElementById('kFixos').textContent=short(t.fr);
+  document.getElementById('kPagas').textContent=short(t.dp);
+  document.getElementById('kPend').textContent=brl(t.despPend)+' pendente';
+  document.getElementById('kMedia').textContent=t.dias>0?short(t.tv/t.dias):'R$0';
+  const ctx=document.getElementById('recChart');
+  if(rchart)rchart.destroy();
+  const cv=data.fixas.map(cat=>({label:cat.cat,val:cat.itens.reduce((s,it)=>s+(it.rec||0),0)}));
+  const vals=[t.tv,...cv.map(c=>c.val),t.oc];
+  const lbls=['Caixa Diário',...cv.map(c=>c.label),'Ocasionais'];
+  const clrs=['#22c55e','#3b82f6','#14b8a6','#a855f7','#f59e0b','#ef4444'];
+  rchart=new Chart(ctx,{type:'doughnut',data:{labels:lbls,datasets:[{data:vals,backgroundColor:clrs.map(c=>c+'bb'),borderColor:clrs,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>' '+brl(i.raw)}}}}});
+  document.getElementById('recLeg').innerHTML=lbls.map((l,i)=>`<span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:${clrs[i]}"></span>${l}</span>`).join('');
+  const dm=data.caixa.filter(d=>getTotalDia(d)>0).slice(-5).reverse();
+  document.getElementById('recentCaixa').innerHTML=dm.length?dm.map(d=>`<tr><td>${d.dia}</td><td>${brl(d.abert)}</td><td style="color:var(--green)">${brl(d.fech)}</td><td style="color:var(--amber)">${d.retir?brl(d.retir):'—'}</td><td style="color:var(--green)">${brl(getResul(d))}</td><td>${d.cartao?brl(d.cartao):'—'}</td><td>${d.pix?brl(d.pix):'—'}</td><td style="color:var(--green);font-weight:600">${brl(getTotalDia(d))}</td></tr>`).join(''):'<tr><td colspan="8" style="padding:14px;text-align:center;color:var(--text3)">Nenhum lançamento ainda</td></tr>';
+  document.getElementById('despDash').innerHTML=data.despesas.map(cat=>{const v=cat.itens.reduce((s,d)=>s+(d.valor||0),0);return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)"><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:2px;background:${cat.cor}"></span><span style="font-size:12px;color:var(--text2)">${cat.cat}</span></span><span style="font-family:var(--mono);font-size:12px">${brl(v)}</span></div>`;}).join('');
+  document.getElementById('fixasDash').innerHTML=data.fixas.map(cat=>{const rec=cat.itens.reduce((s,it)=>s+(it.rec||0),0);const tot=cat.itens.reduce((s,it)=>s+(it.valor||0),0);const pend=Math.max(0,tot-rec);return`<div style="padding:7px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;color:var(--text2)">${cat.cat}</span><span style="font-family:var(--mono);font-size:12px;color:var(--green)">${brl(rec)}</span></div>${pend>0?`<span style="font-size:10px;color:var(--amber)">${brl(pend)} pendente</span>`:''}</div>`;}).join('');
+  const pct=t.ctA>0?Math.round(t.cdA/t.ctA*100):0;
+  document.getElementById('checkPct').textContent=pct+'%';
+  document.getElementById('dashCheck').innerHTML=(data.checklistAdmin||[]).slice(0,6).map(c=>{const hj=isHoje(c.lembrete);return`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);border-radius:6px;${hj&&!c.done?'background:var(--amber-bg);':''}"><div class="check-box${c.done?' done':''}" onclick="window.toggleCheckAdmin(${c.id})">${c.done?'✓':''}</div><span style="font-size:12px;flex:1;${c.done?'text-decoration:line-through;color:var(--text3)':hj?'color:var(--amber);font-weight:600':''}">${c.nome}</span>${hj&&!c.done?'<span style="font-size:9px;background:var(--amber);color:#000;padding:1px 5px;border-radius:8px;font-weight:700">HOJE</span>':''}</div>`;}).join('');
+  // resumo tarefas fixas hoje
+  const el=document.getElementById('dashTarefasHoje');
+  if(el)el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0"><span style="font-size:13px;color:var(--text2)">Rotina de hoje</span><span style="font-family:var(--mono);font-weight:600;color:${t.fixasMarcadas===t.fixasHoje&&t.fixasHoje>0?'var(--green)':'var(--amber)'}">${t.fixasMarcadas}/${t.fixasHoje}</span></div>`;
+  updateCaixaBadge();
+}
+
+// ====== FUNCIONÁRIO HOME ======
+async function renderFuncionarioHome(){
+  const el=document.getElementById('page-funcHome');if(!el)return;
+  const hoje=fmtData();
+  const tarefasHoje=(data.tarefasFixas||[]).filter(tarefaAtivaHoje);
+  const marcadas=tarefasHoje.filter(tarefaMarcadaHoje).length;
+  const total=tarefasHoje.length;
+  const pct=total>0?Math.round(marcadas/total*100):0;
+  let caixaStatus={texto:'Pendente',cor:'var(--amber)'};
+  let pontoStatus={texto:'Não registrado',cor:'var(--amber)'};
+  try{
+    const [cSnap,pSnap]=await Promise.all([
+      getDoc(doc(db,'caixaDinheiro',hoje)),
+      getDoc(doc(db,'ponto',currentUser.email.replace(/[\.@]/g,'_')+'_'+hoje))
+    ]);
+    if(cSnap.exists()){
+      const cd=cSnap.data();
+      if(cd.fech>0){caixaStatus={texto:'Fechado',cor:'var(--text3)'};}
+      else if(cd.abert>0){caixaStatus={texto:'Aberto',cor:'var(--green)'};}
+    }
+    if(pSnap.exists()){
+      const pd=pSnap.data();
+      if(pd.saida){pontoStatus={texto:pd.saida,cor:'var(--text3)'};}
+      else if(pd.entrada){pontoStatus={texto:pd.entrada,cor:'var(--green)'};}
+    }
+  }catch(e){}
+  el.innerHTML=`
+    <div class="page-header"><div><div class="page-title">Olá, ${currentNome}!</div><div class="page-sub">${hoje}</div></div></div>
+    <div class="kpi-grid" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="kpi"><div class="kpi-lbl" style="color:var(--green)"><i class="ti ti-list-check"></i>Tarefas</div><div class="kpi-val">${marcadas}/${total}</div><div class="kpi-foot">${pct}% concluído</div></div>
+      <div class="kpi" style="cursor:pointer" onclick="showPage('caixaDinheiro')"><div class="kpi-lbl" style="color:var(--blue)"><i class="ti ti-cash"></i>Caixa</div><div class="kpi-val" style="font-size:18px;color:${caixaStatus.cor}">${caixaStatus.texto}</div><div class="kpi-foot">Clique para registrar</div></div>
+      <div class="kpi" style="cursor:pointer" onclick="showPage('ponto')"><div class="kpi-lbl" style="color:var(--amber)"><i class="ti ti-clock"></i>Ponto</div><div class="kpi-val" style="font-size:18px;color:${pontoStatus.cor}">${pontoStatus.texto}</div><div class="kpi-foot">Clique para registrar</div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="ph-title"><i class="ti ti-list-check"></i>Rotina de Hoje</span><span style="font-size:11px;color:var(--text3)">${pct}% — ${hoje}</span></div>
+      <div class="pb">
+        ${tarefasHoje.length?tarefasHoje.map(c=>{
+          const marcada=tarefaMarcadaHoje(c);
+          return`<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:4px 0;border-radius:8px;border:1px solid var(--border)">
+            <div class="check-box${marcada?' done':''}" onclick="window.marcarTarefaFixa(${c.id})">${marcada?'✓':''}</div>
+            <span style="flex:1;font-size:13px;${marcada?'text-decoration:line-through;color:var(--text3)':''}">${c.nome}</span>
+            ${c.atalho==='abrirCaixa'&&!marcada?`<button class="btn btn-primary" style="font-size:11px;padding:4px 10px" onclick="window.atalhoAbrirCaixa()"><i class="ti ti-cash"></i>Abrir</button>`:''}
+            ${c.atalho==='fecharCaixa'&&!marcada?`<button class="btn" style="font-size:11px;padding:4px 10px;background:var(--red-bg);border-color:var(--red);color:var(--red)" onclick="window.atalhoFecharCaixa()"><i class="ti ti-cash"></i>Fechar</button>`:''}
+          </div>`;
+        }).join(''):'<div style="text-align:center;color:var(--text3);padding:20px">Nenhuma tarefa para hoje.</div>'}
+      </div>
+    </div>`;
+  // tarefas avulsas de hoje
+  await renderAvulsasHoje(el);
+}
+
+async function renderAvulsasHoje(container){
+  const hoje=fmtData();
+  const partes=hoje.split('/');
+  const ddmm=partes[0]+'/'+partes[1];
+  try{
+    const snaps=await getDocs(collection(db,'tarefasAvulsas'));
+    const avulsas=[];
+    snaps.forEach(d=>{
+      const dd={id:d.id,...d.data()};
+      if(dd.data===ddmm&&!dd.arquivada)avulsas.push(dd);
+    });
+    if(!avulsas.length)return;
+    const div=document.createElement('div');
+    div.className='panel';
+    div.innerHTML=`<div class="ph"><span class="ph-title"><i class="ti ti-calendar-event" style="color:var(--amber)"></i>Tarefas do Dia</span></div>
+    <div class="pb">${avulsas.map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:8px;margin:3px 0;border-radius:8px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.04)">
+      <div class="check-box${t.done?' done':''}" onclick="window.toggleAvulsa('${t.id}',${t.done})">${t.done?'✓':''}</div>
+      <span style="flex:1;font-size:13px;${t.done?'text-decoration:line-through;color:var(--text3)':''}">${t.nome}</span>
+      <span style="font-size:10px;color:var(--amber);background:var(--amber-bg);padding:2px 8px;border-radius:10px">${t.criadoPor||''}</span>
+    </div>`).join('')}</div>`;
+    container.appendChild(div);
+  }catch(e){}
+}
+
+window.atalhoAbrirCaixa=function(){showPage('caixaDinheiro');setTimeout(()=>document.getElementById('cdAbert')?.focus(),400);}
+window.atalhoFecharCaixa=function(){showPage('caixaDinheiro');setTimeout(()=>document.getElementById('cdFech')?.focus(),400);}
+
+window.marcarTarefaFixa=async function(id){
+  const t=(data.tarefasFixas||[]).find(t=>t.id===id);if(!t)return;
+  const d=fmtData();
+  if(!t.marcacoesHoje)t.marcacoesHoje={};
+  if(t.marcacoesHoje[d]){
+    delete t.marcacoesHoje[d];
+  } else {
+    t.marcacoesHoje[d]={por:currentNome,hora:fmtHora()};
+  }
+  await saveNow();
+  // re-renderiza conforme perfil
+  if(isAdmin())window.renderCheckGeral();
+  else renderFuncionarioHome();
+}
+
+// ====== TAREFAS AVULSAS ======
+window.toggleAvulsa=async function(id,doneAtual){
+  try{
+    const novoStatus=!doneAtual;
+    const upd={done:novoStatus};
+    if(novoStatus)upd.concluidoEm=fmtData();
+    await updateDoc(doc(db,'tarefasAvulsas',id),upd);
+    if(isAdmin())window.renderCheckGeral();
+    else renderFuncionarioHome();
+    // limpa avulsas concluídas há mais de 7 dias
+    limparAvulsasAntigas();
+  }catch(e){showToast('Erro.','var(--red)');}
+}
+
+async function limparAvulsasAntigas(){
+  try{
+    const snaps=await getDocs(collection(db,'tarefasAvulsas'));
+    const hoje=new Date();
+    snaps.forEach(async d=>{
+      const dd=d.data();
+      if(dd.done&&dd.concluidoEm){
+        const partes=dd.concluidoEm.split('/');
+        if(partes.length===3){
+          const dt=new Date(parseInt(partes[2]),parseInt(partes[1])-1,parseInt(partes[0]));
+          const diff=(hoje-dt)/(1000*60*60*24);
+          if(diff>=7)await deleteDoc(doc(db,'tarefasAvulsas',d.id));
+        }
+      }
+    });
+  }catch(e){}
+}
+
+window.addTarefaAvulsa=async function(){
+  const nome=document.getElementById('avNome')?.value?.trim();
+  const data=document.getElementById('avData')?.value?.trim();
+  if(!nome||!data){showToast('Preencha nome e data.','var(--amber)');return;}
+  try{
+    await addDoc(collection(db,'tarefasAvulsas'),{
+      nome,data,done:false,
+      criadoPor:currentNome,
+      criadoPorEmail:currentUser.email,
+      criadoEm:fmtData(),
+      concluidoEm:'',
+      arquivada:false
+    });
+    document.getElementById('avNome').value='';
+    document.getElementById('avData').value='';
+    showToast('Tarefa criada!');
+    window.renderCheckGeral();
+  }catch(e){showToast('Erro.','var(--red)');}
+}
+
+window.deletarAvulsa=async function(id){
+  if(!confirm('Excluir tarefa?'))return;
+  try{await deleteDoc(doc(db,'tarefasAvulsas',id));window.renderCheckGeral();}
+  catch(e){showToast('Erro.','var(--red)');}
+}
+
+// ====== CAIXA DINHEIRO ======
+async function renderCaixaDinheiro(){
+  const el=document.getElementById('page-caixaDinheiro');if(!el)return;
+  const hoje=fmtDataId();
+  if(isAdmin()){
+    let pendentes=[],aprovados=[];
+    try{
+      const snaps=await getDocs(collection(db,'caixaDinheiro'));
+      snaps.forEach(d=>{
+        const dd={id:d.id,...d.data()};
+        if(!dd.aprovado&&dd.registradoPor)pendentes.push(dd);
+        else if(dd.aprovado)aprovados.push(dd);
+      });
+      pendentes.sort((a,b)=>b.id.localeCompare(a.id));
+      aprovados.sort((a,b)=>b.id.localeCompare(a.id));
+    }catch(e){console.error('Erro caixa dinheiro:',e);}
+    el.innerHTML=`
+      <div class="page-header"><div><div class="page-title">Caixa Dinheiro</div><div class="page-sub">Registros dos funcionários</div></div></div>
+      ${pendentes.length?`<div class="panel">
+        <div class="ph"><span class="ph-title"><i class="ti ti-alert-circle" style="color:var(--amber)"></i>Pendentes de Aprovação (${pendentes.length})</span></div>
+        <div style="overflow-x:auto"><table class="dt" style="width:100%">
+          <thead><tr><th>Data</th><th>Funcionário</th><th>Abertura</th><th>Fechamento</th><th>Retirada</th><th>Resultado</th><th>Ação</th></tr></thead>
+          <tbody>${pendentes.map(r=>{
+            const sid=r.id.replace(/[\/\.]/g,'_');
+            return`<tr>
+              <td style="font-weight:500">${r.id}</td>
+              <td>${r.registradoPor||'—'}</td>
+              <td><input class="cg-inp" style="width:80px" value="${r.abert||0}" id="pa_${sid}"></td>
+              <td><input class="cg-inp" style="width:80px" value="${r.fech||0}" id="pf_${sid}"></td>
+              <td><input class="cg-inp" style="width:80px" value="${r.retir||0}" id="pr_${sid}"></td>
+              <td style="color:var(--green);font-weight:500">${brl((r.fech||0)-(r.abert||0))}</td>
+              <td style="text-align:right"><button class="btn btn-primary" style="font-size:11px;padding:5px 12px" onclick="window.aprovarCaixa('${r.id}')"><i class="ti ti-check"></i>Aprovar</button></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+      </div>`:`<div class="panel"><div class="pb" style="text-align:center;color:var(--text3);padding:24px;font-size:13px"><i class="ti ti-circle-check" style="font-size:24px;color:var(--green);display:block;margin-bottom:8px"></i>Nenhum registro pendente.</div></div>`}
+      <div class="panel">
+        <div class="ph"><span class="ph-title"><i class="ti ti-history"></i>Histórico Aprovados</span></div>
+        <div style="overflow-x:auto"><table class="dt" style="width:100%">
+          <thead><tr><th>Data</th><th>Funcionário</th><th>Abertura</th><th>Fechamento</th><th>Retirada</th><th>Resultado</th><th></th></tr></thead>
+          <tbody>${aprovados.length?aprovados.slice(0,20).map(r=>`<tr>
+            <td>${r.id}</td><td>${r.registradoPor||'—'}</td>
+            <td>${brl(r.abert)}</td><td>${brl(r.fech)}</td>
+            <td>${r.retir?brl(r.retir):'—'}</td>
+            <td style="color:var(--green);font-weight:500">${brl((r.fech||0)-(r.abert||0))}</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="window.excluirCaixaAprovado('${r.id}')"><i class="ti ti-trash"></i></button></td>
+          </tr>`).join(''):`<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text3)">Nenhum aprovado ainda.</td></tr>`}</tbody>
+        </table></div>
+      </div>`;
+    updateCaixaBadge();
+  } else {
+    let registro={abert:0,fech:0,retir:0,aprovado:false,registradoPor:''};
+    try{const snap=await getDoc(doc(db,'caixaDinheiro',hoje));if(snap.exists())registro={...registro,...snap.data()};}catch(e){}
+    const jaRegistrado=!!registro.registradoPor;
+    el.innerHTML=`
+      <div class="page-header"><div><div class="page-title">Caixa Dinheiro</div><div class="page-sub">Registre abertura e fechamento — ${hoje}</div></div></div>
+      <div class="panel">
+        <div class="ph"><span class="ph-title"><i class="ti ti-cash"></i>Registro de Hoje</span>
+          ${registro.aprovado?'<span class="badge bg-g">✓ Aprovado</span>':jaRegistrado?'<span class="badge bg-a">⏳ Aguardando aprovação</span>':''}
+        </div>
+        <div class="pb">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+            <div><div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:500;text-transform:uppercase">ABERTURA $</div>
+              <input class="inp" id="cdAbert" type="number" value="${registro.abert||''}" placeholder="0,00" style="width:100%" ${registro.aprovado?'disabled':''} oninput="window.atualizaResultado()"></div>
+            <div><div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:500;text-transform:uppercase">FECHAMENTO $</div>
+              <input class="inp" id="cdFech" type="number" value="${registro.fech||''}" placeholder="0,00" style="width:100%" ${registro.aprovado?'disabled':''} oninput="window.atualizaResultado()"></div>
+            <div><div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:500;text-transform:uppercase">RETIRADA $</div>
+              <input class="inp" id="cdRetir" type="number" value="${registro.retir||''}" placeholder="0,00" style="width:100%" ${registro.aprovado?'disabled':''}></div>
+          </div>
+          <div style="background:var(--bg3);border-radius:10px;padding:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;color:var(--text3)">Resultado do Dia</span>
+            <span style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--green)" id="cdResultado">${brl((registro.fech||0)-(registro.abert||0))}</span>
+          </div>
+          ${!registro.aprovado?`<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="window.salvarCaixaDinheiro()"><i class="ti ti-device-floppy"></i>${jaRegistrado?'Atualizar Registro':'Salvar Registro'}</button>`:''}
+        </div>
+      </div>`;
+  }
+}
+
+window.atualizaResultado=function(){
+  const a=parseFloat(document.getElementById('cdAbert')?.value)||0;
+  const f=parseFloat(document.getElementById('cdFech')?.value)||0;
+  const r=document.getElementById('cdResultado');if(r)r.textContent=brl(f-a);
+}
+
+window.salvarCaixaDinheiro=async function(){
+  const abert=parseFloat(document.getElementById('cdAbert')?.value)||0;
+  const fech=parseFloat(document.getElementById('cdFech')?.value)||0;
+  const retir=parseFloat(document.getElementById('cdRetir')?.value)||0;
+  const hoje=fmtDataId();
+  try{
+    await setDoc(doc(db,'caixaDinheiro',hoje),{abert,fech,retir,aprovado:false,registradoPor:currentNome,emailRegistro:currentUser.email,dataRegistro:serverTimestamp()});
+    // marca tarefas fixas de atalho
+    if(abert>0){const t=(data.tarefasFixas||[]).find(t=>t.atalho==='abrirCaixa');if(t&&!tarefaMarcadaHoje(t)){if(!t.marcacoesHoje)t.marcacoesHoje={};t.marcacoesHoje[hoje]={por:currentNome,hora:fmtHora()};}}
+    if(fech>0){const t=(data.tarefasFixas||[]).find(t=>t.atalho==='fecharCaixa');if(t&&!tarefaMarcadaHoje(t)){if(!t.marcacoesHoje)t.marcacoesHoje={};t.marcacoesHoje[hoje]={por:currentNome,hora:fmtHora()};}}
+    await saveNow();
+    showToast('Registro salvo! Aguardando aprovação.');
+    await renderCaixaDinheiro();
+    await renderFuncionarioHome();
+  }catch(e){showToast('Erro ao salvar.','var(--red)');}
+}
+
+window.aprovarCaixa=async function(dataId){
+  const sid=dataId.replace(/[\/\.]/g,'_');
+  const abert=parseFloat(document.getElementById('pa_'+sid)?.value)||0;
+  const fech=parseFloat(document.getElementById('pf_'+sid)?.value)||0;
+  const retir=parseFloat(document.getElementById('pr_'+sid)?.value)||0;
+  try{
+    await updateDoc(doc(db,'caixaDinheiro',dataId),{abert,fech,retir,aprovado:true,aprovadoPor:currentNome});
+    const partes=dataId.split('_');
+    if(partes.length===3){
+      const dia=parseInt(partes[0])-1;
+      if(dia>=0&&dia<31){data.caixa[dia].abert=abert;data.caixa[dia].fech=fech;data.caixa[dia].retir=retir;await saveNow();}
+    }
+    showToast('Aprovado e lançado no Caixa Diário!');
+    renderCaixaDinheiro();renderDashboard();
+  }catch(e){showToast('Erro ao aprovar.','var(--red)');}
+}
+
+window.excluirCaixaAprovado=async function(id){
+  if(!confirm('Excluir registro de caixa de '+id+'?\nEsta ação não pode ser desfeita.'))return;
+  try{
+    await deleteDoc(doc(db,'caixaDinheiro',id));
+    showToast('Registro excluído!');
+    renderCaixaDinheiro();
+  }catch(e){showToast('Erro ao excluir.','var(--red)');}
+}
+
+// ====== PONTO ======
+window.renderPonto=async function renderPonto(){
+  const el=document.getElementById('page-ponto');if(!el)return;
+  const hoje=fmtData();
+  if(isAdmin()){
+    let registros=[];
+    try{
+      const snaps=await getDocs(collection(db,'ponto'));
+      snaps.forEach(d=>registros.push({id:d.id,...d.data()}));
+    }catch(e){console.error('Erro ponto:',e);}
+
+    // função para calcular minutos trabalhados
+    const calcMins=r=>{
+      if(!r.entrada||!r.saida)return 0;
+      const[eh,em]=r.entrada.split(':').map(Number);
+      const[sh,sm]=r.saida.split(':').map(Number);
+      const m=(sh*60+sm)-(eh*60+em);
+      return m>0?m:0;
+    };
+    const fmtMins=m=>m>0?Math.floor(m/60)+'h'+(m%60).toString().padStart(2,'0')+'m':'—';
+
+    // agrupa por funcionário
+    const porFunc={};
+    registros.forEach(r=>{
+      const nome=r.nome||r.email||r.id;
+      if(!porFunc[nome])porFunc[nome]=[];
+      porFunc[nome].push(r);
+    });
+    // ordena cada funcionário por data decrescente
+    Object.keys(porFunc).forEach(n=>porFunc[n].sort((a,b)=>b.id.localeCompare(a.id)));
+
+    const totalGeral=registros.reduce((s,r)=>s+calcMins(r),0);
+
+    el.innerHTML=`
+      <div class="page-header">
+        <div><div class="page-title">Ponto</div><div class="page-sub">Por funcionário — total do mês</div></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:12px;color:var(--text3)">Total geral: <strong style="color:var(--blue);font-family:var(--mono)">${fmtMins(totalGeral)}</strong></span>
+          <button class="btn" onclick="window.renderPonto()" style="font-size:12px"><i class="ti ti-refresh"></i>Atualizar</button>
+        </div>
+      </div>
+      ${Object.keys(porFunc).length?Object.keys(porFunc).map(nome=>{
+        const regs=porFunc[nome];
+        const totalMins=regs.reduce((s,r)=>s+calcMins(r),0);
+        const diasTrabalhados=regs.filter(r=>r.entrada).length;
+        return`<div class="panel">
+          <div class="ph">
+            <span class="ph-title"><i class="ti ti-user" style="color:var(--blue)"></i>${nome}</span>
+            <span style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:11px;color:var(--text3)">${diasTrabalhados} dia${diasTrabalhados!==1?'s':''}</span>
+              <span style="font-family:var(--mono);font-size:14px;font-weight:600;color:var(--blue)">${fmtMins(totalMins)}</span>
+            </span>
+          </div>
+          <div style="overflow-x:auto"><table class="dt" style="width:100%">
+            <thead><tr><th>Data</th><th>Entrada</th><th>Saída</th><th>Total</th><th></th></tr></thead>
+            <tbody>${regs.map(r=>{
+              const mins=calcMins(r);
+              return`<tr>
+                <td style="font-weight:500">${r.data||'—'}</td>
+                <td style="color:var(--green)">${r.entrada||'—'} <button class="btn" style="padding:2px 6px;font-size:10px;margin-left:4px" onclick="window.editarPonto('${r.id}','entrada','${r.entrada||''}')"><i class="ti ti-edit" style="font-size:10px"></i></button></td>
+                <td style="color:var(--red)">${r.saida||'—'} <button class="btn" style="padding:2px 6px;font-size:10px;margin-left:4px" onclick="window.editarPonto('${r.id}','saida','${r.saida||''}')"><i class="ti ti-edit" style="font-size:10px"></i></button></td>
+                <td style="font-family:var(--mono);font-weight:500;color:${mins>0?'var(--blue)':'var(--text3)'}">${fmtMins(mins)}</td>
+                <td><button class="btn btn-danger" style="padding:2px 6px;font-size:10px" onclick="window.excluirPonto('${r.id}')"><i class="ti ti-trash" style="font-size:10px"></i></button></td>
+              </tr>`;
+            }).join('')}</tbody>
+            <tfoot><tr>
+              <td style="color:var(--text3);font-size:11px">Total do mês</td>
+              <td colspan="3"></td>
+              <td style="font-family:var(--mono);font-weight:700;color:var(--blue)">${fmtMins(totalMins)}</td>
+            </tr></tfoot>
+          </table></div>
+        </div>`;
+      }).join(''):`<div class="panel"><div class="pb" style="text-align:center;color:var(--text3);padding:32px">Nenhum registro ainda.</div></div>`}`;
+  } else {
+    const id=currentUser.email.replace(/[\.@]/g,'_')+'_'+hoje;
+    let ponto={entrada:'',saida:''};
+    try{const snap=await getDoc(doc(db,'ponto',id));if(snap.exists())ponto=snap.data();}catch(e){}
+    el.innerHTML=`
+      <div class="page-header"><div><div class="page-title">Meu Ponto</div><div class="page-sub">${hoje}</div></div></div>
+      <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-clock"></i>Registro de Hoje</span></div>
+      <div class="pb">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <div style="text-align:center">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:500;text-transform:uppercase;letter-spacing:.6px">Entrada</div>
+            <div style="font-size:36px;font-weight:700;font-family:var(--mono);color:${ponto.entrada?'var(--green)':'var(--text3)'};margin-bottom:12px">${ponto.entrada||'--:--'}</div>
+            ${!ponto.entrada?`<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="window.registrarPonto('entrada')"><i class="ti ti-login"></i>Registrar Entrada</button>`:`<span class="badge bg-g" style="font-size:12px;padding:6px 14px">✓ Registrado</span>`}
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:500;text-transform:uppercase;letter-spacing:.6px">Saída</div>
+            <div style="font-size:36px;font-weight:700;font-family:var(--mono);color:${ponto.saida?'var(--red)':'var(--text3)'};margin-bottom:12px">${ponto.saida||'--:--'}</div>
+            ${ponto.entrada&&!ponto.saida?`<button class="btn" style="width:100%;justify-content:center;background:var(--red-bg);border-color:var(--red);color:var(--red)" onclick="window.registrarPonto('saida')"><i class="ti ti-logout"></i>Registrar Saída</button>`:ponto.saida?`<span class="badge bg-r" style="font-size:12px;padding:6px 14px">✓ Registrado</span>`:`<button class="btn" disabled style="width:100%;justify-content:center;opacity:.4">Registrar Saída</button>`}
+          </div>
+        </div>
+        ${ponto.entrada&&ponto.saida?`<div style="background:var(--bg3);border-radius:10px;padding:14px;text-align:center"><span style="font-size:13px;color:var(--text3)">Total trabalhado: </span><span style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--blue)">${(()=>{const[eh,em]=ponto.entrada.split(':').map(Number);const[sh,sm]=ponto.saida.split(':').map(Number);const mins=(sh*60+sm)-(eh*60+em);return mins>0?Math.floor(mins/60)+'h'+(mins%60).toString().padStart(2,'0')+'m':'—';})()}</span></div>`:''}
+      </div></div>`;
+  }
+}
+
+window.registrarPonto=async function(tipo){
+  const hoje=fmtData();const hora=fmtHora();const id=currentUser.email.replace(/[\.@]/g,'_')+'_'+hoje;
+  try{
+    const snap=await getDoc(doc(db,'ponto',id));
+    const atual=snap.exists()?snap.data():{};
+    await setDoc(doc(db,'ponto',id),{...atual,[tipo]:hora,nome:currentNome,email:currentUser.email,data:hoje});
+    window.renderPonto();renderFuncionarioHome();
+  }catch(e){showToast('Erro ao registrar ponto.','var(--red)');}
+}
+
+// ====== CHAT ======
+function initChat(){
+  if(unsubChat)unsubChat();
+  unsubChat=onSnapshot(query(collection(db,'chat'),orderBy('timestamp','desc')),snap=>{
+    const msgs=[];snap.forEach(d=>msgs.push({id:d.id,...d.data()}));msgs.reverse();
+    renderChatMsgs(msgs);
+  });
+}
+function renderChatMsgs(msgs){
+  const el=document.getElementById('chatMsgs');if(!el)return;
+  const atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<60;
+  if(!msgs.length){el.innerHTML='<div style="text-align:center;color:var(--text3);padding:40px;font-size:13px">Nenhuma mensagem ainda.</div>';return;}
+  el.innerHTML=msgs.map(m=>{
+    const isMe=m.email===currentUser?.email;
+    const hora=m.timestamp?.toDate?m.timestamp.toDate().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+    return`<div style="display:flex;flex-direction:column;align-items:${isMe?'flex-end':'flex-start'};margin-bottom:12px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:3px;${isMe?'text-align:right':''}">${m.nome||m.email} · ${hora}</div>
+      <div style="background:${isMe?'var(--blue)':'var(--bg3)'};color:${isMe?'#fff':'var(--text)'};padding:10px 14px;border-radius:${isMe?'12px 12px 2px 12px':'12px 12px 12px 2px'};max-width:70%;font-size:13px;line-height:1.4;word-break:break-word">${m.texto}</div>
+    </div>`;
+  }).join('');
+  if(atBottom)el.scrollTop=el.scrollHeight;
+}
+window.enviarMensagem=async function(){
+  const inp=document.getElementById('chatInput');if(!inp||!inp.value.trim())return;
+  const texto=inp.value.trim();inp.value='';
+  try{await addDoc(collection(db,'chat'),{texto,nome:currentNome,email:currentUser.email,perfil:currentPerfil,timestamp:serverTimestamp()});}catch(e){}
+}
+window.chatKeydown=function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();window.enviarMensagem();}}
+
+window.limparChat=async function(){
+  if(!confirm('Apagar todas as mensagens do chat?\nEsta ação não pode ser desfeita.'))return;
+  try{
+    const snaps=await getDocs(collection(db,'chat'));
+    const promises=[];snaps.forEach(d=>promises.push(deleteDoc(doc(db,'chat',d.id))));
+    await Promise.all(promises);
+    showToast('Chat limpo!');
+  }catch(e){showToast('Erro ao limpar chat.','var(--red)');}
+}
+
+window.editarPonto=async function(id,tipo,valorAtual){
+  const novo=prompt('Editar '+tipo+' (HH:MM):',valorAtual||'');
+  if(novo===null)return;
+  if(novo&&!/^\d{2}:\d{2}$/.test(novo)){showToast('Formato inválido. Use HH:MM','var(--amber)');return;}
+  try{
+    const snap=await getDoc(doc(db,'ponto',id));
+    if(!snap.exists())return;
+    const atual=snap.data();
+    await setDoc(doc(db,'ponto',id),{...atual,[tipo]:novo||''});
+    showToast('Ponto atualizado!');
+    window.renderPonto();
+  }catch(e){showToast('Erro ao editar.','var(--red)');}
+}
+
+window.excluirPonto=async function(id){
+  if(!confirm('Excluir este registro de ponto?'))return;
+  try{
+    await deleteDoc(doc(db,'ponto',id));
+    showToast('Registro excluído!');
+    window.renderPonto();
+  }catch(e){showToast('Erro ao excluir.','var(--red)');}
+}
+
+// ====== CHECKLIST ADMIN ======
+window.renderCheckAdmin=function(){
+  const lista=data.checklistAdmin||[];
+  const done=lista.filter(c=>c.done).length,total=lista.length,pct=total>0?Math.round(done/total*100):0;
+  document.getElementById('ckAdminProgress').innerHTML=`<div style="text-align:center;padding:8px 0"><div style="font-size:48px;font-weight:700;font-family:var(--mono);color:${pct===100?'var(--green)':pct>=50?'var(--amber)':'var(--text)'}">${pct}%</div><div style="color:var(--text3);font-size:13px;margin-top:4px">${done} de ${total} tarefas</div><div style="background:var(--bg4);border-radius:8px;height:8px;margin-top:16px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${pct===100?'var(--green)':pct>=50?'var(--amber)':'var(--blue)'};border-radius:8px;transition:.5s"></div></div></div>`;
+  document.getElementById('ckAdminManage').innerHTML=`<div id="ckAdminSort">${lista.map(c=>`
+    <div data-id="${c.id}" style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <i class="ti ti-grip-vertical" style="color:var(--text3);cursor:grab;font-size:16px;flex-shrink:0"></i>
+      <input class="inp inp-sm" style="flex:1;min-width:80px" value="${c.nome||''}" placeholder="Tarefa" oninput="window.ckA_nome(${c.id},this.value)">
+      <input class="inp inp-sm" style="width:65px" value="${c.cat||''}" placeholder="Cat." oninput="window.ckA_cat(${c.id},this.value)">
+      <input class="inp inp-sm" style="width:58px;text-align:center" value="${c.lembrete||''}" placeholder="dd/mm" oninput="window.ckA_lem(${c.id},this.value)">
+      <button class="btn btn-danger" style="padding:3px 6px;flex-shrink:0" onclick="window.ckA_del(${c.id})"><i class="ti ti-x" style="font-size:11px"></i></button>
+    </div>`).join('')}</div>`;
+  setTimeout(()=>{
+    const sortEl=document.getElementById('ckAdminSort');
+    if(sortEl&&window.Sortable){Sortable.create(sortEl,{animation:150,handle:'.ti-grip-vertical',onEnd:()=>{
+      const ids=Array.from(sortEl.children).map(el=>parseInt(el.dataset.id));
+      ids.forEach((id,i)=>{const c=lista.find(c=>c.id===id);if(c)c.ordem=i;});
+      lista.sort((a,b)=>a.ordem-b.ordem);saveNow();
+    }});}
+  },100);
+  document.getElementById('ckAdminList').innerHTML=lista.map(c=>{
+    const hj=isHoje(c.lembrete),vc=isVencido(c.lembrete)&&!c.done;
+    return`<div style="display:flex;align-items:center;gap:10px;padding:8px;margin:2px 0;border-radius:6px;border:1px solid ${hj&&!c.done?'rgba(245,158,11,.3)':'var(--border)'};${hj&&!c.done?'background:rgba(245,158,11,.06)':''}">
+      <div class="check-box${c.done?' done':''}" onclick="window.toggleCheckAdmin(${c.id})">${c.done?'✓':''}</div>
+      <span style="flex:1;font-size:13px;${c.done?'text-decoration:line-through;color:var(--text3)':hj?'color:var(--amber);font-weight:600':''}">${c.nome}</span>
+      ${hj&&!c.done?`<span style="font-size:9px;background:var(--amber);color:#000;padding:2px 7px;border-radius:8px;font-weight:700;flex-shrink:0">HOJE</span>`:''}
+      ${c.lembrete&&!hj?`<span style="font-size:10px;color:${vc?'var(--red)':'var(--text3)'};flex-shrink:0"><i class="ti ti-bell" style="font-size:10px"></i> ${c.lembrete}</span>`:''}
+      ${c.done&&c.concluidoEm?`<span style="font-size:10px;color:var(--text3);flex-shrink:0">${c.concluidoEm}</span>`:''}
+    </div>`;
+  }).join('');
+  const de=document.getElementById('checkPct');if(de)de.textContent=pct+'%';
+}
+window.ckA_nome=function(id,v){const c=(data.checklistAdmin||[]).find(c=>c.id===id);if(c){c.nome=v;save();}}
+window.ckA_cat=function(id,v){const c=(data.checklistAdmin||[]).find(c=>c.id===id);if(c){c.cat=v;save();}}
+window.ckA_lem=function(id,v){const c=(data.checklistAdmin||[]).find(c=>c.id===id);if(c){c.lembrete=v;save();}}
+window.toggleCheckAdmin=function(id){const c=(data.checklistAdmin||[]).find(c=>c.id===id);if(c){c.done=!c.done;c.concluidoEm=c.done?fmtData():'';saveNow();window.renderCheckAdmin();renderDashboard();}}
+window.ckA_del=function(id){if(confirm('Excluir tarefa?')){data.checklistAdmin=(data.checklistAdmin||[]).filter(c=>c.id!==id);saveNow();window.renderCheckAdmin();}}
+window.addCheckAdmin=function(){if(!data.checklistAdmin)data.checklistAdmin=[];data.checklistAdmin.push({id:Date.now(),nome:'Nova tarefa',cat:'Geral',done:false,lembrete:'',ordem:data.checklistAdmin.length,criadoEm:fmtData(),concluidoEm:''});saveNow();window.renderCheckAdmin();}
+window.resetCheckAdmin=function(){if(confirm('Resetar todas as tarefas?')){(data.checklistAdmin||[]).forEach(c=>{c.done=false;c.concluidoEm='';});saveNow();window.renderCheckAdmin();renderDashboard();}}
+
+// ====== CHECKLIST GERAL ======
+window.renderCheckGeral=async function(){
+  const el=document.getElementById('page-checkGeral');if(!el)return;
+  const hoje=fmtData();
+  const ds=diaSemana(),dm=diaDoMes();
+  const tarefasHoje=(data.tarefasFixas||[]).filter(tarefaAtivaHoje);
+
+  // busca avulsas
+  let avulsas=[];
+  try{
+    const snaps=await getDocs(collection(db,'tarefasAvulsas'));
+    snaps.forEach(d=>avulsas.push({id:d.id,...d.data()}));
+  }catch(e){}
+
+  const partes=hoje.split('/');
+  const ddmm=partes[0]+'/'+partes[1];
+  const avulsasHoje=avulsas.filter(a=>a.data===ddmm&&!a.arquivada);
+  const avulsasFuturas=avulsas.filter(a=>a.data!==ddmm&&!a.arquivada&&!a.done);
+  const avulsasArquivadas=avulsas.filter(a=>a.done||a.arquivada);
+
+  const marcadasHoje=tarefasHoje.filter(tarefaMarcadaHoje).length;
+
+  const nomeDiaSemana=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const recTexto=t=>{
+    if(t.recorrencia==='diaria')return'Diária';
+    if(t.recorrencia==='semanal')return'Toda '+nomeDiaSemana[t.diaSemana||0];
+    if(t.recorrencia==='mensal')return'Todo dia '+(t.diaMes||1);
+    return'';
+  };
+
+  document.getElementById('ckGeralContent').innerHTML=`
+    <!-- TAREFAS FIXAS ADMIN -->
+    <div class="panel">
+      <div class="ph">
+        <span class="ph-title"><i class="ti ti-repeat" style="color:var(--blue)"></i>Tarefas Fixas ${isAdmin()?'— Configuração':''}</span>
+        ${isAdmin()?`<button class="btn btn-primary" style="font-size:11px" onclick="window.modalTarefaFixa()"><i class="ti ti-plus"></i>Nova</button>`:''}
+      </div>
+      <div class="pb" id="ckFixasManage">
+        ${(data.tarefasFixas||[]).map(t=>`
+          <div data-id="${t.id}" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+            ${isAdmin()?`<i class="ti ti-grip-vertical" style="color:var(--text3);cursor:grab;font-size:16px;flex-shrink:0"></i>`:''}
+            <span style="flex:1;font-size:13px;color:var(--text2)">${t.nome}</span>
+            <span class="badge bg-b" style="font-size:10px">${recTexto(t)}</span>
+            ${t.atalho?`<span class="badge bg-x" style="font-size:10px">${t.atalho==='abrirCaixa'?'Abrir Caixa':'Fechar Caixa'}</span>`:''}
+            ${isAdmin()?`
+              <button class="btn" style="padding:3px 8px;font-size:11px" onclick="window.editarTarefaFixa(${t.id})"><i class="ti ti-edit"></i></button>
+              <button class="btn btn-danger" style="padding:3px 6px" onclick="window.deletarTarefaFixa(${t.id})"><i class="ti ti-x" style="font-size:11px"></i></button>
+            `:''}
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- ROTINA DE HOJE -->
+    <div class="panel">
+      <div class="ph">
+        <span class="ph-title"><i class="ti ti-calendar-check" style="color:var(--green)"></i>Rotina de Hoje — ${hoje}</span>
+        <span style="font-size:12px;font-family:var(--mono);color:${marcadasHoje===tarefasHoje.length&&tarefasHoje.length>0?'var(--green)':'var(--amber)'}">${marcadasHoje}/${tarefasHoje.length}</span>
+      </div>
+      <div class="pb">
+        ${tarefasHoje.length?tarefasHoje.map(t=>{
+          const marcada=tarefaMarcadaHoje(t);
+          const info=marcada&&t.marcacoesHoje[hoje]?`por ${t.marcacoesHoje[hoje].por} às ${t.marcacoesHoje[hoje].hora}`:'';
+          return`<div style="display:flex;align-items:center;gap:10px;padding:8px;margin:3px 0;border-radius:6px;border:1px solid ${marcada?'var(--green)':'var(--border)'};${marcada?'background:var(--green-bg)':''}">
+            <div class="check-box${marcada?' done':''}" onclick="window.marcarTarefaFixa(${t.id})">${marcada?'✓':''}</div>
+            <span style="flex:1;font-size:13px;${marcada?'text-decoration:line-through;color:var(--text3)':''}">${t.nome}</span>
+            ${marcada&&info?`<span style="font-size:10px;color:var(--text3);flex-shrink:0">${info}</span>`:''}
+            ${t.atalho==='abrirCaixa'&&!marcada?`<button class="btn btn-primary" style="font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window.atalhoAbrirCaixa()"><i class="ti ti-cash"></i>Abrir</button>`:''}
+            ${t.atalho==='fecharCaixa'&&!marcada?`<button class="btn" style="font-size:11px;padding:4px 10px;flex-shrink:0;background:var(--red-bg);border-color:var(--red);color:var(--red)" onclick="window.atalhoFecharCaixa()"><i class="ti ti-cash"></i>Fechar</button>`:''}
+          </div>`;
+        }).join(''):`<div style="text-align:center;color:var(--text3);padding:16px">Nenhuma tarefa fixa para hoje.</div>`}
+      </div>
+    </div>
+
+    <!-- TAREFAS AVULSAS HOJE -->
+    ${avulsasHoje.length?`<div class="panel">
+      <div class="ph"><span class="ph-title"><i class="ti ti-calendar-event" style="color:var(--amber)"></i>Tarefas Avulsas de Hoje</span></div>
+      <div class="pb">
+        ${avulsasHoje.map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:8px;margin:3px 0;border-radius:6px;border:1px solid rgba(245,158,11,.3);${t.done?'background:rgba(34,197,94,.06)':'background:rgba(245,158,11,.04)'}">
+          <div class="check-box${t.done?' done':''}" onclick="window.toggleAvulsa('${t.id}',${t.done})">${t.done?'✓':''}</div>
+          <span style="flex:1;font-size:13px;${t.done?'text-decoration:line-through;color:var(--text3)':''}">${t.nome}</span>
+          <span style="font-size:10px;color:var(--text3)">${t.criadoPor||''}</span>
+          ${isAdmin()?`<button class="btn btn-danger" style="padding:3px 6px" onclick="window.deletarAvulsa('${t.id}')"><i class="ti ti-trash" style="font-size:11px"></i></button>`:''}
+        </div>`).join('')}
+      </div>
+    </div>`:``}
+
+    <!-- ADICIONAR TAREFA AVULSA -->
+    <div class="panel">
+      <div class="ph"><span class="ph-title"><i class="ti ti-plus-circle" style="color:var(--blue)"></i>Nova Tarefa Avulsa</span></div>
+      <div class="pb">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <input class="inp" id="avNome" placeholder="Nome da tarefa" style="flex:1;min-width:180px">
+          <input class="inp" id="avData" placeholder="dd/mm" style="width:80px;text-align:center">
+          <button class="btn btn-primary" onclick="window.addTarefaAvulsa()"><i class="ti ti-check"></i>Adicionar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRÓXIMAS TAREFAS AVULSAS -->
+    ${avulsasFuturas.length?`<div class="panel">
+      <div class="ph"><span class="ph-title"><i class="ti ti-clock" style="color:var(--blue)"></i>Próximas Tarefas</span></div>
+      <div class="pb">
+        ${avulsasFuturas.sort((a,b)=>{
+          const[ad,am]=a.data.split('/').map(Number);
+          const[bd,bm]=b.data.split('/').map(Number);
+          return(am*100+ad)-(bm*100+bd);
+        }).map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:8px;margin:3px 0;border-radius:6px;border:1px solid var(--border)">
+          <span style="font-size:12px;font-family:var(--mono);color:var(--blue);font-weight:600;flex-shrink:0;width:40px">${t.data}</span>
+          <span style="flex:1;font-size:13px">${t.nome}</span>
+          <span style="font-size:10px;color:var(--text3)">${t.criadoPor||''}</span>
+          ${isAdmin()?`<button class="btn btn-danger" style="padding:3px 6px" onclick="window.deletarAvulsa('${t.id}')"><i class="ti ti-trash" style="font-size:11px"></i></button>`:''}
+        </div>`).join('')}
+      </div>
+    </div>`:``}`;
+
+  // SortableJS para tarefas fixas (só admin)
+  if(isAdmin()){
+    setTimeout(()=>{
+      const sortEl=document.getElementById('ckFixasManage');
+      if(sortEl&&window.Sortable){
+        Sortable.create(sortEl,{animation:150,handle:'.ti-grip-vertical',onEnd:()=>{
+          const ids=Array.from(sortEl.children).filter(el=>el.dataset.id).map(el=>parseInt(el.dataset.id));
+          ids.forEach((id,i)=>{const t=(data.tarefasFixas||[]).find(t=>t.id===id);if(t)t.ordem=i;});
+          if(data.tarefasFixas)data.tarefasFixas.sort((a,b)=>a.ordem-b.ordem);
+          saveNow();
+        }});
+      }
+    },100);
+  }
+}
+
+// Modal para adicionar/editar tarefa fixa
+window.modalTarefaFixa=function(id){
+  const t=id?(data.tarefasFixas||[]).find(t=>t.id===id):null;
+  const nomeDias=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:420px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <span style="font-size:16px;font-weight:600">${t?'Editar':'Nova'} Tarefa Fixa</span>
+      <span onclick="this.closest('[style*=fixed]').remove()" style="cursor:pointer;color:var(--text3);font-size:22px">&times;</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Nome</label>
+        <input class="inp" id="mNome" value="${t?.nome||''}" placeholder="Nome da tarefa" style="width:100%"></div>
+      <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Recorrência</label>
+        <select class="inp" id="mRec" style="width:100%" onchange="window.updateModalRec()">
+          <option value="diaria" ${(!t||t.recorrencia==='diaria')?'selected':''}>Diária</option>
+          <option value="semanal" ${t?.recorrencia==='semanal'?'selected':''}>Semanal</option>
+          <option value="mensal" ${t?.recorrencia==='mensal'?'selected':''}>Mensal</option>
+        </select></div>
+      <div id="mRecExtra" style="${t?.recorrencia==='diaria'||!t?'display:none':''}">
+        <label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase" id="mRecLabel">${t?.recorrencia==='mensal'?'Dia do mês':'Dia da semana'}</label>
+        ${t?.recorrencia==='mensal'?
+          `<input class="inp" id="mRecVal" type="number" min="1" max="31" value="${t?.diaMes||1}" style="width:100%">`:
+          `<select class="inp" id="mRecVal" style="width:100%">${nomeDias.map((n,i)=>`<option value="${i}" ${t?.diaSemana===i?'selected':''}>${n}</option>`).join('')}</select>`
+        }
+      </div>
+      <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Atalho</label>
+        <select class="inp" id="mAtalho" style="width:100%">
+          <option value="" ${!t?.atalho?'selected':''}>Sem atalho</option>
+          <option value="abrirCaixa" ${t?.atalho==='abrirCaixa'?'selected':''}>Abrir Caixa</option>
+          <option value="fecharCaixa" ${t?.atalho==='fecharCaixa'?'selected':''}>Fechar Caixa</option>
+        </select></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="window.salvarTarefaFixa(${id||'null'})">
+        <i class="ti ti-device-floppy"></i>Salvar
+      </button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+window.updateModalRec=function(){
+  const rec=document.getElementById('mRec')?.value;
+  const extra=document.getElementById('mRecExtra');
+  const label=document.getElementById('mRecLabel');
+  const valEl=document.getElementById('mRecVal');
+  if(!extra)return;
+  if(rec==='diaria'){extra.style.display='none';return;}
+  extra.style.display='block';
+  const nomeDias=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  if(rec==='semanal'){
+    if(label)label.textContent='Dia da semana';
+    if(valEl)valEl.outerHTML=`<select class="inp" id="mRecVal" style="width:100%">${nomeDias.map((n,i)=>`<option value="${i}">${n}</option>`).join('')}</select>`;
+  } else {
+    if(label)label.textContent='Dia do mês';
+    if(valEl)valEl.outerHTML=`<input class="inp" id="mRecVal" type="number" min="1" max="31" value="1" style="width:100%">`;
+  }
+}
+
+window.salvarTarefaFixa=async function(id){
+  const nome=document.getElementById('mNome')?.value?.trim();
+  const rec=document.getElementById('mRec')?.value||'diaria';
+  const atalho=document.getElementById('mAtalho')?.value||'';
+  const recValEl=document.getElementById('mRecVal');
+  const recVal=recValEl?parseInt(recValEl.value):null;
+  if(!nome){showToast('Digite o nome da tarefa.','var(--amber)');return;}
+  if(!data.tarefasFixas)data.tarefasFixas=[];
+  if(id){
+    const t=data.tarefasFixas.find(t=>t.id===id);
+    if(t){t.nome=nome;t.recorrencia=rec;t.atalho=atalho;t.diaSemana=rec==='semanal'?recVal:null;t.diaMes=rec==='mensal'?recVal:null;}
+  } else {
+    data.tarefasFixas.push({id:Date.now(),nome,recorrencia:rec,diaSemana:rec==='semanal'?recVal:null,diaMes:rec==='mensal'?recVal:null,atalho,ordem:data.tarefasFixas.length,marcacoesHoje:{}});
+  }
+  await saveNow();
+  document.querySelector('[style*="position:fixed"][style*="inset:0"]')?.remove();
+  window.renderCheckGeral();
+  showToast(id?'Tarefa atualizada!':'Tarefa criada!');
+}
+
+window.editarTarefaFixa=function(id){window.modalTarefaFixa(id);}
+window.deletarTarefaFixa=async function(id){
+  if(!confirm('Excluir tarefa fixa?'))return;
+  data.tarefasFixas=(data.tarefasFixas||[]).filter(t=>t.id!==id);
+  await saveNow();window.renderCheckGeral();
+}
+
+// ====== PERFIS ======
+async function renderPerfis(){
+  const el=document.getElementById('page-perfis');if(!el)return;
+  let usuarios=[];
+  try{const snaps=await getDocs(collection(db,'usuarios'));snaps.forEach(d=>usuarios.push({id:d.id,...d.data()}));}catch(e){}
+  el.innerHTML=`
+    <div class="page-header"><div><div class="page-title">Perfis</div><div class="page-sub">Gerencie os usuários do sistema</div></div></div>
+    <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-users"></i>Usuários (${usuarios.length})</span></div>
+    <div style="overflow-x:auto"><table class="dt" style="width:100%">
+      <thead><tr><th>Nome</th><th>Email</th><th>Perfil</th><th>Último Acesso</th><th>Ação</th></tr></thead>
+      <tbody>${usuarios.map(u=>`<tr>
+        <td style="font-weight:500">${u.nome||'—'}</td>
+        <td style="font-size:11px;color:var(--text3)">${u.id}</td>
+        <td><select class="inp inp-sm" style="width:110px" onchange="window.mudarPerfil('${u.id}',this.value)">
+          <option value="admin" ${u.perfil==='admin'?'selected':''}>Admin</option>
+          <option value="funcionario" ${u.perfil==='funcionario'?'selected':''}>Funcionário</option>
+        </select></td>
+        <td style="font-size:11px;color:var(--text3)">${u.ultimoAcesso?.toDate?u.ultimoAcesso.toDate().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</td>
+        <td style="text-align:right"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="window.editarNome('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i>Nome</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>`;
+}
+window.mudarPerfil=async function(email,perfil){try{await updateDoc(doc(db,'usuarios',email),{perfil});showToast('Perfil atualizado!');}catch(e){showToast('Erro.','var(--red)');}}
+window.editarNome=async function(email,nomeAtual){const nome=prompt('Novo nome:',nomeAtual);if(nome){try{await updateDoc(doc(db,'usuarios',email),{nome});showToast('Nome atualizado!');renderPerfis();}catch(e){showToast('Erro.','var(--red)');}}}
+
+// ====== CAIXA DIÁRIO ======
+window.caixaInput=function(i,field,val){
+  data.caixa[i][field]=parseFloat(val)||0;
+  const resul=getResul(data.caixa[i]),total=getTotalDia(data.caixa[i]);
+  const rEl=document.getElementById('resul'+i);if(rEl){rEl.textContent=brl(resul);rEl.style.color=resul>0?'var(--green)':resul<0?'var(--red)':'var(--text3)';}
+  const tEl=document.getElementById('total'+i);if(tEl){tEl.textContent=total!==0?brl(total):'—';tEl.style.color=total>0?'var(--green)':total<0?'var(--red)':'';}
+  if(field==='fech'||field==='retir'){
+    for(let j=i+1;j<31;j++){
+      if(!data.caixa[j].abertManual){
+        const pa=getProxAbert(data.caixa[j-1]);data.caixa[j].abert=pa;
+        const ae=document.getElementById('abert'+j);if(ae&&document.activeElement!==ae)ae.value=pa>0?pa:'';
+        const rj=getResul(data.caixa[j]),tj=getTotalDia(data.caixa[j]);
+        const rjEl=document.getElementById('resul'+j);if(rjEl){rjEl.textContent=brl(rj);rjEl.style.color=rj>0?'var(--green)':rj<0?'var(--red)':'var(--text3)';}
+        const tjEl=document.getElementById('total'+j);if(tjEl){tjEl.textContent=tj!==0?brl(tj):'—';tjEl.style.color=tj>0?'var(--green)':tj<0?'var(--red)':'';}
+      }else{break;}
+    }
+  }
+  updCaixaFoot();renderDashboard();save();
+}
+window.caixaAbertManual=function(i,val){data.caixa[i].abert=parseFloat(val)||0;data.caixa[i].abertManual=i>0&&val!=='';window.caixaInput(i,'abert',val);}
+window.renderCaixa=function(){
+  document.getElementById('caixaBody').innerHTML=data.caixa.map((d,i)=>`<tr>
+    <td style="text-align:center">${d.dia}</td>
+    <td><input class="cg-inp" id="abert${i}" value="${d.abert||''}" placeholder="0,00" style="${d.abertManual&&i>0?'color:var(--amber)':''}" oninput="window.caixaAbertManual(${i},this.value)" onblur="if(!this.value&&${i}>0){data.caixa[${i}].abertManual=false;this.style.color='';}"></td>
+    <td><input class="cg-inp" id="fech${i}" value="${d.fech||''}" placeholder="0,00" oninput="window.caixaInput(${i},'fech',this.value)"></td>
+    <td><input class="cg-inp" id="retir${i}" value="${d.retir||''}" placeholder="0,00" style="color:var(--amber)" oninput="window.caixaInput(${i},'retir',this.value)"></td>
+    <td><span class="cg-ro" id="resul${i}" style="color:${getResul(d)>0?'var(--green)':getResul(d)<0?'var(--red)':'var(--text3)'}">${brl(getResul(d))}</span></td>
+    <td><input class="cg-inp" value="${d.cartao||''}" placeholder="0,00" oninput="window.caixaInput(${i},'cartao',this.value)"></td>
+    <td><input class="cg-inp" value="${d.pix||''}" placeholder="0,00" oninput="window.caixaInput(${i},'pix',this.value)"></td>
+    <td><input class="cg-inp" value="${d.outros||''}" placeholder="0,00" oninput="window.caixaInput(${i},'outros',this.value)"></td>
+    <td><span class="cg-ro" id="total${i}" style="font-weight:600;color:${getTotalDia(d)>0?'var(--green)':getTotalDia(d)<0?'var(--red)':''}">${getTotalDia(d)!==0?brl(getTotalDia(d)):'—'}</span></td>
+  </tr>`).join('');updCaixaFoot();
+}
+function updCaixaFoot(){
+  const rt=data.caixa.reduce((s,d)=>s+(d.retir||0),0),rs=data.caixa.reduce((s,d)=>s+getResul(d),0),ca=data.caixa.reduce((s,d)=>s+(d.cartao||0),0),px=data.caixa.reduce((s,d)=>s+(d.pix||0),0),tt=data.caixa.reduce((s,d)=>s+getTotalDia(d),0);
+  document.getElementById('ftRetir').textContent=rt?brl(rt):'—';document.getElementById('ftResul').textContent=rs?brl(rs):'—';document.getElementById('ftCart').textContent=ca?brl(ca):'—';document.getElementById('ftPix').textContent=px?brl(px):'—';document.getElementById('ftTotal').textContent=brl(tt);
+}
+
+window.renderFixas=function(){
+  document.getElementById('fixasPage').innerHTML=data.fixas.map((cat,ci)=>`
+    <div class="panel">
+      <div class="ph">
+        <span class="ph-title"><i class="ti ti-tag"></i>
+          <input class="inp inp-sm" value="${cat.cat}" style="width:200px"
+            onchange="data.fixas[${ci}].cat=this.value;saveNow();">
+        </span>
+        <span style="display:flex;gap:6px">
+          <button class="btn" onclick="window.addItemFixa(${ci})"><i class="ti ti-plus"></i>Item</button>
+          <button class="btn btn-danger" onclick="window.delCatFixa(${ci})"><i class="ti ti-trash"></i></button>
+        </span>
+      </div>
+      <div class="pb">
+        ${cat.itens.map((it,ii)=>`
+          <div class="row-item">
+            <input class="inp inp-sm" style="flex:1;min-width:100px" value="${it.nome}" placeholder="Nome"
+              onchange="data.fixas[${ci}].itens[${ii}].nome=this.value;saveNow();">
+            <input class="inp inp-sm inp-mono" style="width:90px" value="${it.valor||''}" placeholder="Valor"
+              onchange="data.fixas[${ci}].itens[${ii}].valor=parseFloat(this.value)||0;saveNow();renderDashboard();">
+            <input class="inp inp-sm" style="width:50px;text-align:center" value="${it.parcela||''}" placeholder="parc."
+              onchange="data.fixas[${ci}].itens[${ii}].parcela=this.value;saveNow();">
+            <span style="font-size:11px;color:var(--text3);white-space:nowrap">Rec.:</span>
+            <input class="inp inp-sm inp-mono" style="width:90px" value="${it.rec||''}" placeholder="0,00"
+              onchange="data.fixas[${ci}].itens[${ii}].rec=parseFloat(this.value)||0;saveNow();renderDashboard();">
+            <span class="badge ${it.rec>=(it.valor||0)&&it.valor>0?'bg-g':it.rec>0?'bg-a':'bg-x'}"
+              data-fixa="${ci}_${ii}" onclick="window.marcarFixaRec(${ci},${ii})">
+              ${it.rec>=(it.valor||0)&&it.valor>0?'✓ Rec.':'Pend.'}
+            </span>
+            <button class="btn" style="padding:3px 7px" onclick="window.delItemFixa(${ci},${ii})">
+              <i class="ti ti-x" style="font-size:11px"></i>
+            </button>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+window.marcarFixaRec=function(ci,ii){
+  data.fixas[ci].itens[ii].rec=data.fixas[ci].itens[ii].valor;
+  const badge=document.querySelector(`[data-fixa="${ci}_${ii}"]`);
+  if(badge){badge.className='badge bg-g';badge.textContent='✓ Rec.';}
+  saveNow();renderDashboard();
+}
+window.addCatFixa=function(){data.fixas.push({id:Date.now(),cat:'Nova Categoria',itens:[]});saveNow();window.renderFixas();}
+window.delCatFixa=function(ci){if(confirm('Excluir?')){data.fixas.splice(ci,1);saveNow();window.renderFixas();renderDashboard();}}
+window.addItemFixa=function(ci){data.fixas[ci].itens.push({id:Date.now(),nome:'',valor:0,parcela:'',rec:0});saveNow();window.renderFixas();}
+window.delItemFixa=function(ci,ii){data.fixas[ci].itens.splice(ii,1);saveNow();window.renderFixas();renderDashboard();}
+
+window.renderOcasionais=function(){
+  const el=document.getElementById('ocasPage');
+  if(!data.ocasionais||!data.ocasionais.length){
+    el.innerHTML='<div style="text-align:center;color:var(--text3);padding:32px;font-size:13px">Nenhuma receita ocasional.<br>Clique em + Adicionar.</div>';
+    return;
+  }
+  el.innerHTML=`<table class="dt" style="width:100%">
+    <thead><tr><th>Descrição</th><th>Data</th><th>Valor</th><th>Status</th><th>Ação</th></tr></thead>
+    <tbody>${data.ocasionais.map((o,i)=>`<tr>
+      <td><input class="inp inp-sm" style="width:100%" value="${o.desc||''}" placeholder="Descrição"
+        onchange="data.ocasionais[${i}].desc=this.value;saveNow()"></td>
+      <td><input class="inp inp-sm" style="width:70px" value="${o.data||''}" placeholder="dd/mm"
+        onchange="data.ocasionais[${i}].data=this.value;saveNow()"></td>
+      <td><input class="inp inp-sm inp-mono" style="width:90px" value="${o.valor||''}" placeholder="0,00"
+        onchange="data.ocasionais[${i}].valor=parseFloat(this.value)||0;saveNow();renderDashboard()"></td>
+      <td style="text-align:right">
+        <span class="badge ${o.recebido?'bg-g':'bg-x'}" onclick="window.marcarOcasionalRec(${i})">
+          ${o.recebido?'✓ Rec.':'Pend.'}
+        </span>
+      </td>
+      <td style="text-align:right">
+        <button class="btn btn-danger" style="padding:3px 8px"
+          onclick="data.ocasionais.splice(${i},1);saveNow();renderDashboard();window.renderOcasionais()">
+          <i class="ti ti-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr>
+      <td colspan="2" style="color:var(--text3);font-size:11px">Total</td>
+      <td style="font-family:var(--mono);font-weight:600;color:var(--green)">${brl((data.ocasionais||[]).reduce((s,o)=>s+(o.valor||0),0))}</td>
+      <td colspan="2"></td>
+    </tr></tfoot>
+  </table>`;
+}
+window.marcarOcasionalRec=function(i){data.ocasionais[i].recebido=!data.ocasionais[i].recebido;saveNow();renderDashboard();window.renderOcasionais();}
+
+window.renderDespesas=function(){document.getElementById('despPage').innerHTML=data.despesas.map((cat,ci)=>{const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);return`<div class="panel"><div class="ph"><span class="ph-title"><span style="width:10px;height:10px;border-radius:3px;background:${cat.cor};display:inline-block;flex-shrink:0"></span><input class="inp inp-sm" value="${cat.cat}" style="width:140px" onchange="data.despesas[${ci}].cat=this.value;saveNow();renderDashboard()"><input type="color" value="${cat.cor}" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0" onchange="data.despesas[${ci}].cor=this.value;saveNow();window.renderDespesas()"></span><span style="display:flex;align-items:center;gap:8px"><span data-pago="${ci}" style="font-size:11px;color:var(--green)">${brl(pago)} pago</span><span data-pend="${ci}" style="font-size:11px;color:var(--red)">${brl(tot-pago)} pend.</span><button class="btn" onclick="window.addItemDesp(${ci})"><i class="ti ti-plus"></i>Item</button><button class="btn btn-danger" style="padding:3px 8px" onclick="window.delCatDesp(${ci})"><i class="ti ti-trash"></i></button></span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Descrição</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>${cat.itens.map((d,di)=>`<tr><td><div class="ac-wrap"><input class="inp inp-sm" style="width:100%;min-width:130px" value="${d.nome}" placeholder="Descrição" id="ac${ci}_${di}" onchange="data.despesas[${ci}].itens[${di}].nome=this.value;saveNow()" oninput="window.showAC(${ci},${di},this.value)" onblur="setTimeout(()=>window.hideAC(${ci},${di}),200)" autocomplete="off"><div class="ac-list" id="acl${ci}_${di}"></div></div></td><td><input class="inp inp-sm inp-mono" style="width:90px" value="${d.valor||''}" placeholder="0,00" onchange="data.despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;saveNow();renderDashboard()"></td><td style="text-align:right"><span class="badge ${d.pago?'bg-g':'bg-x'}" data-desp="${ci}_${di}" onclick="window.toggleDesp(${ci},${di})">${d.pago?'✓ Pago':'Pendente'}</span></td><td><input class="inp inp-sm" style="width:65px" value="${d.data||''}" placeholder="dd/mm" onchange="data.despesas[${ci}].itens[${di}].data=this.value;saveNow()"></td><td style="text-align:right"><button class="btn" style="padding:3px 6px" onclick="window.delItemDesp(${ci},${di})"><i class="ti ti-x" style="font-size:11px"></i></button></td></tr>`).join('')}</tbody><tfoot><tr><td style="font-size:11px;color:var(--text3)">Total</td><td style="font-family:var(--mono);font-weight:600">${brl(tot)}</td><td colspan="3"></td></tr></tfoot></table></div></div>`;}).join('');}
+window.toggleDesp=function(ci,di){
+  data.despesas[ci].itens[di].pago=!data.despesas[ci].itens[di].pago;
+  // atualiza só o badge clicado sem re-renderizar tudo
+  const badge=document.querySelector(`[data-desp="${ci}_${di}"]`);
+  if(badge){
+    const pago=data.despesas[ci].itens[di].pago;
+    badge.className='badge '+(pago?'bg-g':'bg-x');
+    badge.textContent=pago?'✓ Pago':'Pendente';
+  }
+  // atualiza totais da categoria no header
+  const tot=data.despesas[ci].itens.reduce((s,d)=>s+(d.valor||0),0);
+  const pago=data.despesas[ci].itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);
+  const pagoEl=document.querySelector(`[data-pago="${ci}"]`);
+  const pendEl=document.querySelector(`[data-pend="${ci}"]`);
+  if(pagoEl)pagoEl.textContent=brl(pago)+' pago';
+  if(pendEl)pendEl.textContent=brl(tot-pago)+' pend.';
+  saveNow();renderDashboard();
+}
+window.showAC=function(ci,di,val){const list=document.getElementById('acl'+ci+'_'+di);if(!list||!val||val.length<2){if(list)list.style.display='none';return;}const names=new Set();data.despesas.forEach(cat=>cat.itens.forEach(it=>{if(it.nome&&it.nome!==val)names.add(it.nome)}));const f=Array.from(names).filter(n=>n.toLowerCase().includes(val.toLowerCase()));if(!f.length){list.style.display='none';return;}list.innerHTML=f.slice(0,8).map(n=>`<div class="ac-item" onmousedown="window.selectAC(${ci},${di},'${n.replace(/'/g,"\\'")}')">${n}</div>`).join('');list.style.display='block';}
+window.hideAC=function(ci,di){const l=document.getElementById('acl'+ci+'_'+di);if(l)l.style.display='none';}
+window.selectAC=function(ci,di,val){data.despesas[ci].itens[di].nome=val;saveNow();const inp=document.getElementById('ac'+ci+'_'+di);if(inp)inp.value=val;window.hideAC(ci,di);}
+window.addCatDesp=function(){data.despesas.push({id:Date.now(),cat:'Nova Categoria',cor:'#8b95b0',itens:[]});saveNow();window.renderDespesas();}
+window.delCatDesp=function(ci){if(confirm('Excluir?')){data.despesas.splice(ci,1);saveNow();window.renderDespesas();renderDashboard();}}
+window.addItemDesp=function(ci){data.despesas[ci].itens.push({id:Date.now(),nome:'',valor:0,pago:false,data:''});saveNow();window.renderDespesas();}
+window.delItemDesp=function(ci,di){data.despesas[ci].itens.splice(di,1);saveNow();window.renderDespesas();renderDashboard();}
+
+const ADMIN_PAGES=['dashboard','caixa','fixas','ocasionais','despesas','checkAdmin','perfis'];
+window.showPage=function(p){
+  if(!isAdmin()&&ADMIN_PAGES.includes(p))return;
+  document.querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(x=>{if(x.getAttribute('onclick')&&x.getAttribute('onclick').includes("'"+p+"'"))x.classList.add('active');});
+  window.closeSidebar();
+  if(p==='dashboard')renderDashboard();
+  else if(p==='caixa')window.renderCaixa();
+  else if(p==='fixas')window.renderFixas();
+  else if(p==='ocasionais')window.renderOcasionais();
+  else if(p==='despesas')window.renderDespesas();
+  else if(p==='checkAdmin')window.renderCheckAdmin();
+  else if(p==='checkGeral')window.renderCheckGeral();
+  else if(p==='caixaDinheiro')renderCaixaDinheiro();
+  else if(p==='ponto')window.renderPonto();
+  else if(p==='perfis')renderPerfis();
+  else if(p==='funcHome')renderFuncionarioHome();
+}
+
+window.changeMonth=function(){
+  const mob=document.getElementById('monthSelect');
+  const des=document.getElementById('monthSelectDesktop');
+  cm=mob?mob.value:(des?des.value:'Mai');
+  if(mob&&des){if(document.activeElement===mob)des.value=mob.value;else mob.value=des.value;}
+  const meses={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
+  document.getElementById('dashSub').textContent=meses[cm]+' 2026';
+  loadMonth(cm);
+}
+
+window.loadLogo=function(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=e=>{const img=document.getElementById('logoImg'),btn=document.getElementById('logoBtn');img.src=e.target.result;img.style.display='block';if(btn)btn.style.display='none';try{localStorage.setItem('pj_logo',e.target.result);}catch(ex){}};r.readAsDataURL(f);}
+function initLogo(){try{const s=localStorage.getItem('pj_logo');if(s){const img=document.getElementById('logoImg'),btn=document.getElementById('logoBtn');img.src=s;img.style.display='block';if(btn)btn.style.display='none';}}catch(e){}}
+initLogo();
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1117;--bg2:#161b27;--bg3:#1e2535;--bg4:#252d3e;--border:#2a3347;--border2:#3a4560;--text:#e8ecf4;--text2:#8b95b0;--text3:#5a6480;--green:#22c55e;--green-bg:rgba(34,197,94,.08);--red:#ef4444;--red-bg:rgba(239,68,68,.08);--blue:#3b82f6;--blue-bg:rgba(59,130,246,.08);--amber:#f59e0b;--amber-bg:rgba(245,158,11,.08);--purple:#a855f7;--font:'DM Sans',sans-serif;--mono:'DM Mono',monospace}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5;min-height:100vh}
+#loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:380px}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-title{font-size:20px;font-weight:600;margin-bottom:4px}
+.login-sub{font-size:12px;color:var(--text3)}
+.login-field{margin-bottom:14px}
+.login-field label{display:block;font-size:12px;color:var(--text3);margin-bottom:6px;font-weight:500}
+.login-field input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;transition:.15s}
+.login-field input:focus{border-color:var(--blue)}
+.login-btn{width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#fff;font-family:var(--font);font-size:14px;font-weight:500;cursor:pointer;margin-top:6px}
+.login-btn:hover{background:#2563eb}
+.login-err{color:var(--red);font-size:12px;margin-top:10px;text-align:center;min-height:18px}
+#appScreen{display:none;grid-template-columns:230px 1fr;min-height:100vh}
+.sidebar{background:var(--bg2);border-right:1px solid var(--border);position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;transition:.3s}
+.logo-area{padding:18px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.logo-img{width:54px;height:38px;object-fit:contain;opacity:.9}
+.logo-text{font-size:13px;font-weight:600;line-height:1.3}
+.logo-sub{font-size:10px;color:var(--text3);margin-top:1px}
+.nav-section{padding:14px 12px 4px;font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);font-weight:500}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;margin:2px 8px;border-radius:8px;cursor:pointer;color:var(--text2);font-size:13px;transition:.15s;position:relative}
+.nav-item:hover{background:var(--bg3);color:var(--text)}
+.nav-item.active{background:var(--blue-bg);color:var(--blue)}
+.nav-item i{font-size:16px}
+.nav-badge{background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:auto;display:none}
+.sidebar-footer{margin-top:auto;padding:14px 16px;border-top:1px solid var(--border)}
+.user-info{font-size:12px;color:var(--text);margin-bottom:2px;font-weight:500}
+.user-perfil{font-size:10px;color:var(--text3);margin-bottom:8px}
+.side-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:998}
+.side-overlay.open{display:block}
+.mobile-bar{display:none;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.mobile-bar-title{font-size:14px;font-weight:600}
+.hamburger{width:38px;height:38px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;border-radius:8px;background:var(--bg3);border:1px solid var(--border)}
+.hamburger span{width:18px;height:2px;background:var(--text);border-radius:2px}
+.main{padding:26px 30px;overflow-x:hidden}
+.page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:10px}
+.page-title{font-size:20px;font-weight:600;letter-spacing:-.3px}
+.page-sub{color:var(--text3);font-size:12px;margin-top:3px}
+.btn{padding:7px 13px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);cursor:pointer;font-size:12px;font-family:var(--font);display:inline-flex;align-items:center;gap:6px;transition:.15s}
+.btn:hover{background:var(--bg4)}
+.btn-primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn-primary:hover{background:#2563eb}
+.btn-danger{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.month-sel{display:flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px}
+.month-sel select{background:none;border:none;color:var(--text);font-family:var(--font);font-size:12px;cursor:pointer;outline:none}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;transition:.2s}
+.kpi:hover{border-color:var(--border2)}
+.kpi-lbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;font-weight:500;margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.kpi-val{font-size:22px;font-weight:600;letter-spacing:-.5px;font-family:var(--mono)}
+.kpi-foot{margin-top:6px;font-size:11px;color:var(--text3)}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.three-col{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-bottom:14px}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.ph{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.ph-title{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
+.ph-title i{font-size:14px;color:var(--text3)}
+.pb{padding:16px 18px}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:500;cursor:pointer}
+.bg-g{background:var(--green-bg);color:var(--green)}.bg-r{background:var(--red-bg);color:var(--red)}.bg-a{background:var(--amber-bg);color:var(--amber)}.bg-x{background:var(--bg4);color:var(--text3)}.bg-b{background:var(--blue-bg);color:var(--blue)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+.inp{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:var(--font);font-size:13px;color:var(--text);outline:none;transition:.15s}
+.inp:focus{border-color:var(--blue)}
+.inp-sm{padding:4px 8px;font-size:12px}
+.inp-mono{font-family:var(--mono);text-align:right}
+.row-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.row-item:last-child{border-bottom:none}
+.ac-wrap{position:relative;flex:1;min-width:120px}
+.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;z-index:100;max-height:160px;overflow-y:auto;margin-top:2px;display:none}
+.ac-item{padding:7px 10px;cursor:pointer;font-size:12px;color:var(--text2)}
+.ac-item:hover{background:var(--bg4);color:var(--text)}
+.check-box{width:20px;height:20px;border-radius:5px;border:2px solid var(--border2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:.15s;font-size:12px;font-weight:700;color:#fff}
+.check-box.done{background:var(--green);border-color:var(--green)}
+.res-banner{background:var(--bg3);border:1px solid var(--border2);border-radius:16px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px}
+.res-seg{flex:1;min-width:80px;text-align:center;padding:0 8px}
+.res-seg+.res-seg{border-left:1px solid var(--border)}
+.res-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);margin-bottom:5px;font-weight:500}
+.res-val{font-size:18px;font-weight:600;font-family:var(--mono);letter-spacing:-.5px}
+.chart-wrap{position:relative;height:200px}
+.cg-inp{background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;width:76px;text-align:right;padding:4px;outline:none;transition:.15s}
+.cg-inp:focus{border-bottom-color:var(--blue);background:var(--bg3);border-radius:4px 4px 0 0}
+.cg-ro{font-family:var(--mono);font-size:12px;text-align:right;padding:4px;min-width:76px;display:inline-block}
+.dt{width:100%;border-collapse:collapse}
+.dt th{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:500;padding:8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+.dt th:first-child{text-align:left}
+.dt td{padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text2);text-align:right;vertical-align:middle}
+.dt td:first-child{text-align:left;color:var(--text)}
+.dt tr:last-child td{border-bottom:none}
+.dt tfoot td{background:var(--bg3);font-weight:600;color:var(--text);border-top:1px solid var(--border2);padding:8px}
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:400px}
+.chat-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column}
+.chat-input-area{padding:16px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end}
+.chat-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;resize:none;max-height:100px}
+.chat-input:focus{border-color:var(--blue)}
+#loadingOverlay{display:none;position:fixed;inset:0;background:rgba(15,17,23,.8);z-index:9998;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+@media(max-width:768px){
+  #appScreen{grid-template-columns:1fr}
+  .sidebar{display:none;position:fixed;top:0;left:0;height:100vh;width:260px;z-index:999;transform:translateX(-100%)}
+  .sidebar.open{display:flex;transform:translateX(0)}
+  .mobile-bar{display:flex}
+  .main{padding:14px;padding-top:0}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .two-col,.three-col{grid-template-columns:1fr}
+  .res-banner{flex-direction:column;gap:8px}
+  .res-seg+.res-seg{border-left:none;border-top:1px solid var(--border)}
+  .res-seg{padding:6px 0}
+  .chat-wrap{height:calc(100vh - 160px)}
+}
+</style>
+<div id="loadingOverlay"><div class="spinner"></div><span style="color:var(--text3);font-size:13px">Carregando...</span></div>
+<div id="sideOverlay" class="side-overlay" onclick="closeSidebar()"></div>
+
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo"><div style="font-size:32px;margin-bottom:8px">⚡</div><div class="login-title">Padel Joaçaba</div><div class="login-sub">Controle Financeiro</div></div>
+    <div class="login-field"><label>Email</label><input type="email" id="loginEmail" placeholder="seu@email.com" onkeydown="loginKeydown(event)"></div>
+    <div class="login-field"><label>Senha</label><input type="password" id="loginPass" placeholder="••••••••" onkeydown="loginKeydown(event)"></div>
+    <button class="login-btn" onclick="doLogin()">Entrar</button>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="appScreen">
+  <aside class="sidebar">
+    <div class="logo-area">
+      <img id="logoImg" class="logo-img" src="" alt="Logo" style="display:none">
+      <div id="logoBtn" style="cursor:pointer;display:flex;align-items:center;justify-content:center;width:54px;height:38px;border:1px dashed var(--border2);border-radius:8px;flex-shrink:0" onclick="document.getElementById('logoFile').click()">
+        <i class="ti ti-photo" style="font-size:20px;color:var(--text3)"></i>
+      </div>
+      <input type="file" id="logoFile" accept="image/*" style="display:none" onchange="loadLogo(this)">
+      <div><div class="logo-text">Padel Joaçaba</div><div class="logo-sub">Controle Financeiro</div></div>
+    </div>
+    <div id="navItems"></div>
+    <div class="sidebar-footer">
+      <div class="user-info" id="userEmail"></div>
+      <div class="user-perfil" id="userPerfil"></div>
+      <button class="btn btn-danger" style="width:100%;justify-content:center;font-size:12px" onclick="doLogout()"><i class="ti ti-logout"></i>Sair</button>
+    </div>
+  </aside>
+
+  <div style="display:flex;flex-direction:column;min-height:100vh;overflow:hidden">
+    <div class="mobile-bar">
+      <div class="hamburger" onclick="openSidebar()"><span></span><span></span><span></span></div>
+      <div class="mobile-bar-title">Padel Joaçaba</div>
+      <div class="month-sel" style="padding:4px 8px" id="mobileMonthSel">
+        <select id="monthSelect" onchange="changeMonth()" style="font-size:11px">
+          <option value="Jan">Jan</option><option value="Fev">Fev</option><option value="Mar">Mar</option>
+          <option value="Abr">Abr</option><option value="Mai" selected>Mai</option><option value="Jun">Jun</option>
+          <option value="Jul">Jul</option><option value="Ago">Ago</option><option value="Set">Set</option>
+          <option value="Out">Out</option><option value="Nov">Nov</option><option value="Dez">Dez</option>
+        </select>
+      </div>
+    </div>
+    <main class="main">
+<div id="page-dashboard" class="tab-panel">
+        <div class="page-header">
+          <div><div class="page-title">Dashboard</div><div class="page-sub" id="dashSub">Maio 2026</div></div>
+          <div class="month-sel" id="desktopMonth">
+            <i class="ti ti-calendar" style="font-size:13px;color:var(--text3)"></i>
+            <select id="monthSelectDesktop" onchange="changeMonth()">
+              <option value="Jan">Janeiro</option><option value="Fev">Fevereiro</option><option value="Mar">Março</option>
+              <option value="Abr">Abril</option><option value="Mai" selected>Maio</option><option value="Jun">Junho</option>
+              <option value="Jul">Julho</option><option value="Ago">Agosto</option><option value="Set">Setembro</option>
+              <option value="Out">Outubro</option><option value="Nov">Novembro</option><option value="Dez">Dezembro</option>
+            </select>
+            <span style="color:var(--text3)">2026</span>
+          </div>
+        </div>
+        <div class="res-banner">
+          <div class="res-seg"><div class="res-lbl">Resultado Líquido</div><div class="res-val" id="resLiq">R$ 0</div></div>
+          <div class="res-seg"><div class="res-lbl">Total Receitas</div><div class="res-val" id="resRec" style="color:var(--green)">R$ 0</div></div>
+          <div class="res-seg"><div class="res-lbl">Total Despesas</div><div class="res-val" id="resDesp" style="color:var(--red)">R$ 0</div></div>
+          <div class="res-seg"><div class="res-lbl">A Receber</div><div class="res-val" id="resPend" style="color:var(--amber)">R$ 0</div></div>
+          <div class="res-seg"><div class="res-lbl">Checklist</div><div class="res-val" id="resCheck" style="color:var(--blue)">0/0</div></div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-lbl" style="color:var(--green)"><i class="ti ti-receipt-2"></i>Vendas Caixa</div><div class="kpi-val" id="kCaixa">R$ 0</div><div class="kpi-foot" id="kDias">0 dias</div></div>
+          <div class="kpi"><div class="kpi-lbl" style="color:var(--blue)"><i class="ti ti-repeat"></i>Receitas Fixas</div><div class="kpi-val" id="kFixos">R$ 0</div><div class="kpi-foot">Recebido</div></div>
+          <div class="kpi"><div class="kpi-lbl" style="color:var(--red)"><i class="ti ti-arrow-down-circle"></i>Desp. Pagas</div><div class="kpi-val" id="kPagas">R$ 0</div><div class="kpi-foot" id="kPend">R$ 0 pendente</div></div>
+          <div class="kpi"><div class="kpi-lbl" style="color:var(--amber)"><i class="ti ti-chart-bar"></i>Média Diária</div><div class="kpi-val" id="kMedia">R$ 0</div><div class="kpi-foot">por dia</div></div>
+        </div>
+        <div class="three-col">
+          <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-chart-donut"></i>Composição das Receitas</span></div><div class="pb"><div class="chart-wrap"><canvas id="recChart"></canvas></div><div id="recLeg" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px;color:var(--text3)"></div></div></div>
+          <div class="panel">
+            <div class="ph"><span class="ph-title"><i class="ti ti-checkbox"></i>Checklist Admin</span><span style="font-size:11px;color:var(--text3)" id="checkPct">0%</span></div>
+            <div class="pb" id="dashCheck" style="max-height:180px;overflow-y:auto"></div>
+            <div class="pb" style="border-top:1px solid var(--border);padding-top:12px" id="dashTarefasHoje"></div>
+          </div>
+        </div>
+        <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-clock"></i>Últimos lançamentos</span><span style="font-size:12px;color:var(--blue);cursor:pointer" onclick="showPage('caixa')">Ver todos →</span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Dia</th><th>Abertura</th><th>Fechamento</th><th>Retirada</th><th>Resul.$</th><th>Cartão</th><th>PIX</th><th>Total</th></tr></thead><tbody id="recentCaixa"></tbody></table></div></div>
+        <div class="two-col">
+          <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-receipt"></i>Despesas</span><span style="font-size:12px;color:var(--blue);cursor:pointer" onclick="showPage('despesas')">Editar →</span></div><div class="pb" id="despDash"></div></div>
+          <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-repeat"></i>Receitas Fixas</span><span style="font-size:12px;color:var(--blue);cursor:pointer" onclick="showPage('fixas')">Editar →</span></div><div class="pb" id="fixasDash"></div></div>
+        </div>
+      </div>
+
+      <div id="page-funcHome" class="tab-panel"></div>
+      <div id="page-caixaDinheiro" class="tab-panel"></div>
+      <div id="page-ponto" class="tab-panel"></div>
+
+      <div id="page-caixa" class="tab-panel">
+        <div class="page-header"><div><div class="page-title">Caixa Diário</div><div class="page-sub">Abertura e Fechamento + Cartão e PIX</div></div></div>
+        <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-calendar-stats"></i>Lançamentos</span><span style="font-size:11px;color:var(--text3)">Abertura seguinte = Fech. - Retirada</span></div>
+        <div style="overflow-x:auto"><table class="dt" style="width:100%;min-width:600px">
+          <thead><tr><th style="text-align:center;width:40px">Dia</th><th>Abert.$</th><th>Fech.$</th><th>Retir.</th><th>Resul.$</th><th>Cartão</th><th>PIX</th><th>Outros</th><th>Total</th></tr></thead>
+          <tbody id="caixaBody"></tbody>
+          <tfoot><tr><td style="text-align:center">TOT.</td><td>—</td><td>—</td><td id="ftRetir" style="color:var(--amber)">—</td><td id="ftResul" style="color:var(--green)">—</td><td id="ftCart" style="color:var(--green)">—</td><td id="ftPix" style="color:var(--green)">—</td><td>—</td><td id="ftTotal" style="color:var(--green)">R$ 0,00</td></tr></tfoot>
+        </table></div></div>
+      </div>
+
+      <div id="page-fixas" class="tab-panel">
+        <div class="page-header"><div><div class="page-title">Receitas Fixas</div></div><button class="btn btn-primary" onclick="window.addCatFixa()"><i class="ti ti-plus"></i>Nova Categoria</button></div>
+        <div id="fixasPage"></div>
+      </div>
+
+      <div id="page-ocasionais" class="tab-panel">
+        <div class="page-header"><div><div class="page-title">Receitas Ocasionais</div></div><button class="btn btn-primary" onclick="addOcasional()"><i class="ti ti-plus"></i>Adicionar</button></div>
+        <div class="panel"><div class="pb" id="ocasPage"></div></div>
+      </div>
+
+      <div id="page-despesas" class="tab-panel">
+        <div class="page-header"><div><div class="page-title">Despesas</div></div><button class="btn btn-primary" onclick="addCatDesp()"><i class="ti ti-plus"></i>Nova Categoria</button></div>
+        <div id="despPage"></div>
+      </div>
+
+      <div id="page-checkAdmin" class="tab-panel">
+        <div class="page-header">
+          <div><div class="page-title">Checklist Admin</div><div class="page-sub">Somente administradores — lembretes com data</div></div>
+          <button class="btn btn-primary" onclick="addCheckAdmin()"><i class="ti ti-plus"></i>Nova Tarefa</button>
+        </div>
+        <div class="two-col">
+          <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-chart-pie"></i>Progresso</span></div><div class="pb" id="ckAdminProgress"></div></div>
+          <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-settings"></i>Gerenciar</span><button class="btn btn-danger" onclick="resetCheckAdmin()" style="padding:4px 8px;font-size:11px"><i class="ti ti-refresh"></i>Resetar</button></div><div class="pb" id="ckAdminManage" style="max-height:320px;overflow-y:auto"></div></div>
+        </div>
+        <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-list-check"></i>Todas as Tarefas</span></div><div class="pb" id="ckAdminList"></div></div>
+      </div>
+
+      <div id="page-checkGeral" class="tab-panel">
+        <div class="page-header">
+          <div><div class="page-title">Checklist Geral</div><div class="page-sub">Rotina diária + Tarefas avulsas</div></div>
+        </div>
+        <div id="ckGeralContent"></div>
+      </div>
+
+      <div id="page-chat" class="tab-panel">
+        <div class="page-header"><div><div class="page-title">Chat</div><div class="page-sub">Comunicação em tempo real</div></div></div>
+        <div class="panel" style="margin-bottom:0">
+          <div class="ph" style="padding:10px 18px">
+            <span class="ph-title"><i class="ti ti-message-circle"></i>Mensagens</span>
+            ${isAdmin()?`<button class="btn btn-danger" style="font-size:11px;padding:4px 10px" onclick="window.limparChat()"><i class="ti ti-trash"></i>Limpar chat</button>`:''}
+          </div>
+          <div class="chat-wrap">
+            <div class="chat-msgs" id="chatMsgs"></div>
+            <div class="chat-input-area">
+              <textarea class="chat-input" id="chatInput" placeholder="Digite uma mensagem..." rows="1" onkeydown="chatKeydown(event)"></textarea>
+              <button class="btn btn-primary" onclick="enviarMensagem()" style="padding:10px 16px;flex-shrink:0"><i class="ti ti-send"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="page-perfis" class="tab-panel"></div>
+
+    </main>
+  </div>
+</div>
+<script>
+function checkScreenSize(){
+  const d=document.getElementById('desktopMonth');
+  if(d)d.style.display=window.innerWidth>768?'flex':'none';
+  const ms=document.getElementById('mobileMonthSel');
+  if(ms)ms.style.display=window.isAdmin&&window.isAdmin()?'flex':'none';
+}
+window.addEventListener('resize',checkScreenSize);
+setTimeout(checkScreenSize,1000);
+</script>
+</body>
+</html>
