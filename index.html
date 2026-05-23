@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -356,27 +348,18 @@ async function updateCaixaBadge(){
 function calcTotals(){
   const tv=data.caixa.reduce((s,d)=>s+getTotalDia(d),0);
   const dias=data.caixa.filter(d=>getTotalDia(d)>0).length;
-  // Fixas: rec = recebido, pend = valor - rec
   const fr=data.fixas.reduce((s,cat)=>s+cat.itens.reduce((ss,it)=>ss+(it.rec||0),0),0);
   const fp=data.fixas.reduce((s,cat)=>s+cat.itens.reduce((ss,it)=>ss+Math.max(0,(it.valor||0)-(it.rec||0)),0),0);
-  // Ocasionais: só recebidas contam como receita; não recebidas = a receber
-  const oc=  (data.ocasionais||[]).filter(o=> o.recebido).reduce((s,o)=>s+(o.valor||0),0);
-  const ocPend=(data.ocasionais||[]).filter(o=>!o.recebido).reduce((s,o)=>s+(o.valor||0),0);
-  // Total receitas = caixa + fixas rec + ocasionais rec
+  const oc=(data.ocasionais||[]).filter(o=>o.recebido).reduce((s,o)=>s+(o.valor||0),0);
   const tr=tv+fr+oc;
-  // A receber = fixas pend + ocasionais pend
-  const aReceber=fp+ocPend;
-  // Despesas: td = total cadastrado, dp = só pagas
   const allD=data.despesas.reduce((a,cat)=>a.concat(cat.itens),[]);
   const td=allD.reduce((s,d)=>s+(d.valor||0),0);
   const dp=allD.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);
-  // Resultado = receitas confirmadas - despesas pagas
-  const resultado=tr-dp;
   const cdA=(data.checklistAdmin||[]).filter(c=>c.done).length;
   const ctA=(data.checklistAdmin||[]).length;
   const fixasHoje=(data.tarefasFixas||[]).filter(tarefaAtivaHoje);
   const fixasMarcadas=fixasHoje.filter(tarefaMarcadaHoje).length;
-  return{tv,dias,fr,fp,oc,ocPend,tr,aReceber,td,dp,despPend:td-dp,resultado,cdA,ctA,fixasHoje:fixasHoje.length,fixasMarcadas};
+  return{tv,dias,fr,fp,oc,tr,td,dp,despPend:td-dp,resultado:tr-dp,totalPend:fp,cdA,ctA,fixasHoje:fixasHoje.length,fixasMarcadas};
 }
 
 let rchart=null;
@@ -387,13 +370,13 @@ function renderDashboard(){
   re.textContent=brl(t.resultado);re.style.color=t.resultado>=0?'var(--green)':'var(--red)';
   document.getElementById('resRec').textContent=brl(t.tr);
   document.getElementById('resDesp').textContent=brl(t.dp);
-  document.getElementById('resPend').textContent=brl(t.aReceber);
+  document.getElementById('resPend').textContent=brl(t.totalPend);
   document.getElementById('resCheck').textContent=t.cdA+'/'+t.ctA;
   document.getElementById('kCaixa').textContent=short(t.tv);
   document.getElementById('kDias').textContent=t.dias+' dias com movimento';
   document.getElementById('kFixos').textContent=short(t.fr);
   document.getElementById('kPagas').textContent=short(t.dp);
-  document.getElementById('kPend').textContent=brl(t.despPend)+' a pagar';
+  document.getElementById('kPend').textContent=brl(t.despPend)+' pendente';
   document.getElementById('kMedia').textContent=t.dias>0?short(t.tv/t.dias):'R$0';
   const ctx=document.getElementById('recChart');
   if(rchart)rchart.destroy();
@@ -1310,6 +1293,18 @@ window.marcarOcasionalRec=function(i){
 }
 
 window.renderDespesas=function(){document.getElementById('despPage').innerHTML=data.despesas.map((cat,ci)=>{const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);return`<div class="panel"><div class="ph"><span class="ph-title"><span style="width:10px;height:10px;border-radius:3px;background:${cat.cor};display:inline-block;flex-shrink:0"></span><input class="inp inp-sm" value="${cat.cat}" style="width:140px" onchange="window.getData().despesas[${ci}].cat=this.value;window.saveNow();renderDashboard()"><input type="color" value="${cat.cor}" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0" onchange="window.getData().despesas[${ci}].cor=this.value;window.saveNow();window.renderDespesas()"></span><span style="display:flex;align-items:center;gap:8px"><span data-pago="${ci}" style="font-size:11px;color:var(--green)">${brl(pago)} pago</span><span data-pend="${ci}" style="font-size:11px;color:var(--red)">${brl(tot-pago)} pend.</span><button class="btn" onclick="window.addItemDesp(${ci})"><i class="ti ti-plus"></i>Item</button><button class="btn btn-danger" style="padding:3px 8px" onclick="window.delCatDesp(${ci})"><i class="ti ti-trash"></i></button></span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Descrição</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>${cat.itens.map((d,di)=>`<tr><td><div class="ac-wrap"><input class="inp inp-sm" style="width:100%;min-width:130px" value="${d.nome}" placeholder="Descrição" id="ac${ci}_${di}" onchange="window.getData().despesas[${ci}].itens[${di}].nome=this.value;window.saveNow()" oninput="window.showAC(${ci},${di},this.value)" onblur="setTimeout(()=>window.hideAC(${ci},${di}),200)" autocomplete="off"><div class="ac-list" id="acl${ci}_${di}"></div></div></td><td><input class="inp inp-sm inp-mono" style="width:90px" value="${d.valor||''}" placeholder="0,00" onchange="window.getData().despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;window.saveNow()" oninput="window.getData().despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;window.atualizaTotaisDesp(${ci})"></td><td style="text-align:right"><span class="badge ${d.pago?'bg-g':'bg-x'}" data-desp="${ci}_${di}" onclick="window.toggleDesp(${ci},${di})">${d.pago?'✓ Pago':'Pendente'}</span></td><td><input class="inp inp-sm" style="width:65px" value="${d.data||''}" placeholder="dd/mm" onchange="window.getData().despesas[${ci}].itens[${di}].data=this.value;window.saveNow()"></td><td style="text-align:right"><button class="btn" style="padding:3px 6px" onclick="window.delItemDesp(${ci},${di})"><i class="ti ti-x" style="font-size:11px"></i></button></td></tr>`).join('')}</tbody><tfoot><tr><td style="font-size:11px;color:var(--text3)">Total</td><td style="font-family:var(--mono);font-weight:600">${brl(tot)}</td><td colspan="3"></td></tr></tfoot></table></div></div>`;}).join('');}
+window.atualizaTotaisDesp=function(ci){
+  const cat=window.getData().despesas[ci];if(!cat)return;
+  const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);
+  const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);
+  const pagoEl=document.querySelector(`[data-pago="${ci}"]`);
+  const pendEl=document.querySelector(`[data-pend="${ci}"]`);
+  const totEl=document.querySelector(`[data-tot="${ci}"]`);
+  if(pagoEl)pagoEl.textContent=brl(pago)+' pago';
+  if(pendEl)pendEl.textContent=brl(tot-pago)+' pend.';
+  if(totEl)totEl.textContent=brl(tot);
+}
+
 window.toggleDesp=function(ci,di){
   data.despesas[ci].itens[di].pago=!data.despesas[ci].itens[di].pago;
   // atualiza só o badge clicado sem re-renderizar tudo
