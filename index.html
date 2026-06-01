@@ -1808,19 +1808,32 @@ window.renderHistorico=async function(){
     meses.sort((a,b)=>a.anoDoc!==b.anoDoc?a.anoDoc.localeCompare(b.anoDoc):a.idx-b.idx);
     if(!meses.length){el.innerHTML='<div style="padding:32px;text-align:center;color:var(--text3)">Nenhum dado encontrado.</div>';return;}
 
-    const maxVal=Math.max(...meses.map(m=>m.totalRec),1);
-    const barW=Math.max(28,Math.min(52,Math.floor(520/meses.length)-6));
-    const svgW=meses.length*(barW+8)+40;
+    const maxVal=Math.max(...meses.map(m=>Math.max(m.totalRec,m.despPagas)),1);
+    const barW=44;
+    const gap=18;
+    const paddingL=48;
+    const chartH=160;
+    const svgW=Math.max(400, meses.length*(barW+gap)+paddingL+20);
+    // linhas de grade
+    let grid='';
+    [0,0.25,0.5,0.75,1].forEach(function(p){
+      const y=Math.round(chartH-p*chartH)+2;
+      const val=maxVal*p;
+      grid+='<line x1="'+paddingL+'" y1="'+y+'" x2="'+(svgW-10)+'" y2="'+y+'" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>';
+      if(p>0)grid+='<text x="'+(paddingL-4)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="var(--text3)">'+brl(val).replace('R$ ','').replace('R$ ','')+'</text>';
+    });
     let bars='';
     meses.forEach(function(m,i){
-      const hRec=Math.round((m.totalRec/maxVal)*110);
-      const hDesp=Math.round((m.despPagas/maxVal)*110);
-      const x=i*(barW+8)+20;
+      const hRec=Math.max(2,Math.round((m.totalRec/maxVal)*chartH));
+      const hDesp=Math.max(m.despPagas>0?2:0,Math.round((m.despPagas/maxVal)*chartH));
+      const x=i*(barW+gap)+paddingL;
       const label=(mesesNm[m.mes]||m.mes).substring(0,3)+'/'+m.anoDoc.slice(2);
+      const cor=m.resultado>=0?'#22c55e':'#ef4444';
       bars+='<g>'
-        +'<rect x="'+x+'" y="'+(120-hRec)+'" width="'+barW+'" height="'+hRec+'" rx="3" fill="var(--green)" opacity="0.85"/>'
-        +'<rect x="'+x+'" y="'+(120-hDesp)+'" width="'+(barW*0.5)+'" height="'+hDesp+'" rx="2" fill="var(--red)" opacity="0.7"/>'
-        +'<text x="'+(x+barW/2)+'" y="136" text-anchor="middle" font-size="9" fill="var(--text3)">'+label+'</text>'
+        +'<rect x="'+x+'" y="'+(chartH+2-hRec)+'" width="'+barW+'" height="'+hRec+'" rx="4" fill="#22c55e" opacity="0.85"/>'
+        +'<rect x="'+x+'" y="'+(chartH+2-hDesp)+'" width="'+(barW*0.45)+'" height="'+hDesp+'" rx="3" fill="#ef4444" opacity="0.75"/>'
+        +'<text x="'+(x+barW/2)+'" y="'+(chartH+16)+'" text-anchor="middle" font-size="10" font-weight="500" fill="var(--text3)">'+label+'</text>'
+        +'<text x="'+(x+barW/2)+'" y="'+(chartH+2-hRec-5)+'" text-anchor="middle" font-size="9" fill="'+cor+'">'+brl(m.resultado).replace('R$ ','R$').replace('R$ ','R$')+'</text>'
         +'</g>';
     });
 
@@ -1846,10 +1859,12 @@ window.renderHistorico=async function(){
       +'<div class="panel" style="margin-bottom:16px">'
       +'<div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:12px;text-transform:uppercase">Receitas vs Despesas</div>'
       +'<div style="overflow-x:auto">'
-      +'<svg viewBox="0 0 '+svgW+' 150" style="width:100%;min-width:'+svgW+'px;height:150px">'
-      +bars
-      +'<text x="8" y="12" font-size="9" fill="var(--green)">■ Receita</text>'
-      +'<text x="60" y="12" font-size="9" fill="var(--red)">■ Despesa</text>'
+      +'<svg viewBox="0 0 '+svgW+' 200" style="width:100%;min-width:'+Math.min(svgW,800)+'px;height:200px">'
+      +grid+bars
+      +'<rect x="'+paddingL+'" y="185" width="12" height="10" rx="2" fill="#22c55e"/>'
+      +'<text x="'+(paddingL+16)+'" y="194" font-size="10" fill="var(--text3)">Receita Total</text>'
+      +'<rect x="'+(paddingL+100)+'" y="185" width="12" height="10" rx="2" fill="#ef4444"/>'
+      +'<text x="'+(paddingL+116)+'" y="194" font-size="10" fill="var(--text3)">Despesas Pagas</text>'
       +'</svg></div></div>'
       +'<div class="panel" style="overflow-x:auto">'
       +'<table class="dt" style="width:100%"><thead><tr>'
@@ -1875,15 +1890,26 @@ window.irParaMes=function(mes,anoDoc){
 }
 
 
-window.changeMonth=function(){
+window.changeMonth=function(src){
   const mob=document.getElementById('monthSelect');
   const des=document.getElementById('monthSelectDesktop');
   const anoSel=document.getElementById('yearSelectDesktop');
-  cm=mob?mob.value:(des?des.value:_ORDEM_MESES[new Date().getMonth()]);
-  if(mob&&des){if(document.activeElement===mob)des.value=mob.value;else mob.value=des.value;}
+  // src='mob' ou 'des' passado no onchange; se nao vier, usa o ativo
+  const active=document.activeElement;
+  if(src==='des'||(active&&active===des)){
+    cm=des.value;
+    if(mob)mob.value=cm;
+  } else if(src==='mob'||(active&&active===mob)){
+    cm=mob.value;
+    if(des)des.value=cm;
+  } else if(des&&des.value){
+    cm=des.value;
+    if(mob)mob.value=cm;
+  }
   if(anoSel)ano=anoSel.value;
   const meses={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
-  document.getElementById('dashSub').textContent=meses[cm]+' '+ano;
+  const sub=document.getElementById('dashSub');
+  if(sub)sub.textContent=meses[cm]+' '+ano;
   loadMonth(cm);
 }
 
@@ -2094,7 +2120,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
       <div class="hamburger" onclick="openSidebar()"><span></span><span></span><span></span></div>
       <div class="mobile-bar-title">Padel Joaçaba</div>
       <div class="month-sel" style="padding:4px 8px" id="mobileMonthSel">
-        <select id="monthSelect" onchange="changeMonth()" style="font-size:11px">
+        <select id="monthSelect" onchange="changeMonth('mob')" style="font-size:11px">
           <option value="Jan">Jan</option><option value="Fev">Fev</option><option value="Mar">Mar</option>
           <option value="Abr">Abr</option><option value="Mai" selected>Mai</option><option value="Jun">Jun</option>
           <option value="Jul">Jul</option><option value="Ago">Ago</option><option value="Set">Set</option>
@@ -2108,13 +2134,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
           <div><div class="page-title">Dashboard</div><div class="page-sub" id="dashSub"></div></div>
           <div class="month-sel" id="desktopMonth">
             <i class="ti ti-calendar" style="font-size:13px;color:var(--text3)"></i>
-            <select id="monthSelectDesktop" onchange="changeMonth()">
+            <select id="monthSelectDesktop" onchange="changeMonth('des')">
               <option value="Jan">Janeiro</option><option value="Fev">Fevereiro</option><option value="Mar">Março</option>
               <option value="Abr">Abril</option><option value="Mai">Maio</option><option value="Jun">Junho</option>
               <option value="Jul">Julho</option><option value="Ago">Agosto</option><option value="Set">Setembro</option>
               <option value="Out">Outubro</option><option value="Nov">Novembro</option><option value="Dez">Dezembro</option>
             </select>
-            <select id="yearSelectDesktop" onchange="changeMonth()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 6px;font-size:13px">
+            <select id="yearSelectDesktop" onchange="changeMonth('des')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 6px;font-size:13px">
               <option value="2025">2025</option><option value="2026" selected>2026</option><option value="2027">2027</option>
             </select>
           </div>
