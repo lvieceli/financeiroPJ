@@ -294,7 +294,7 @@ function buildSidebar(){
       <div class="nav-item" onclick="showPage('checkGeral')"><i class="ti ti-list-check"></i>Checklist Geral</div>
       <div class="nav-item" onclick="showPage('chat')"><i class="ti ti-message-circle"></i>Chat</div>
       <div class="nav-item" onclick="showPage('perfis')"><i class="ti ti-users"></i>Perfis</div>
-      <div class="nav-item" onclick="showPage('historico')"><i class="ti ti-chart-bar"></i>Histórico Mensal</div>\`;
+      <div class="nav-item" onclick="showPage('historico')"><i class="ti ti-chart-bar"></i>Histórico Mensal</div>`;
   } else {
     nav.innerHTML=`
       <div class="nav-section">Meu Dia</div>
@@ -1764,88 +1764,82 @@ window.showPage=function(p){
 // ====== HISTÓRICO MENSAL ======
 window.renderHistorico=async function(){
   const el=document.getElementById('page-historico');if(!el)return;
-  el.innerHTML='<div style="padding:24px;color:var(--text3);text-align:center"><i class="ti ti-loader" style="font-size:24px"></i><br>Carregando histórico...</div>';
+  el.innerHTML='<div style="padding:24px;color:var(--text3);text-align:center">Carregando...</div>';
   const mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
   const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   try{
     const snap=await getDocs(collection(db,'meses'));
     const meses=[];
     snap.forEach(d=>{
-      const id=d.id; // ex: Jun_2026
+      const id=d.id;
       const parts=id.split('_');
       if(parts.length<2)return;
       const mes=parts[0],anoDoc=parts[1];
       const dd=d.data();
-      // receitas caixa
-      const caixaTotal=(dd.caixa||[]).reduce((s,dia)=>s+getTotalDia(dia),0);
-      // receitas fixas
+      const caixaTotal=(dd.caixa||[]).reduce((s,dia)=>s+((dia.fech||0)+(dia.retir||0)-(dia.abert||0)>0?(dia.fech||0)+(dia.retir||0)-(dia.abert||0):0)+(dia.cartao||0)+(dia.pix||0)+(dia.outros||0),0);
       const fixasTotal=(dd.fixas||[]).reduce((s,cat)=>s+(cat.itens||[]).reduce((ss,it)=>ss+(it.rec||0),0),0);
-      // ocasionais
       const ocTotal=(dd.ocasionais||[]).reduce((s,o)=>s+(o.valor||0),0);
-      // despesas pagas
       const despPagas=(dd.despesas||[]).reduce((s,cat)=>s+(cat.itens||[]).filter(it=>it.pago).reduce((ss,it)=>ss+(it.valor||0),0),0);
-      // despesas total
       const despTotal=(dd.despesas||[]).reduce((s,cat)=>s+(cat.itens||[]).reduce((ss,it)=>ss+(it.valor||0),0),0);
       const totalRec=caixaTotal+fixasTotal+ocTotal;
       const resultado=totalRec-despPagas;
-      const idxM=ordemM.indexOf(mes);
-      meses.push({id,mes,anoDoc,idxM,caixaTotal,fixasTotal,ocTotal,despPagas,despTotal,totalRec,resultado});
+      meses.push({id,mes,anoDoc,idx:ordemM.indexOf(mes),caixaTotal,fixasTotal,ocTotal,despPagas,despTotal,totalRec,resultado});
     });
-    // ordena: ano asc, depois mês
-    meses.sort((a,b)=>a.anoDoc!==b.anoDoc?a.anoDoc.localeCompare(b.anoDoc):a.idxM-b.idxM);
+    meses.sort((a,b)=>a.anoDoc!==b.anoDoc?a.anoDoc.localeCompare(b.anoDoc):a.idx-b.idx);
     if(!meses.length){el.innerHTML='<div style="padding:32px;text-align:center;color:var(--text3)">Nenhum dado encontrado.</div>';return;}
-    // gráfico simples SVG de barras
+
     const maxVal=Math.max(...meses.map(m=>m.totalRec),1);
-    const barW=Math.max(32,Math.min(56,Math.floor(560/meses.length)-8));
+    const barW=Math.max(28,Math.min(52,Math.floor(520/meses.length)-6));
     const svgW=meses.length*(barW+8)+40;
-    const bars=meses.map((m,i)=>{
-      const hRec=Math.round((m.totalRec/maxVal)*120);
-      const hDesp=Math.round((m.despPagas/maxVal)*120);
+    let bars='';
+    meses.forEach(function(m,i){
+      const hRec=Math.round((m.totalRec/maxVal)*110);
+      const hDesp=Math.round((m.despPagas/maxVal)*110);
       const x=i*(barW+8)+20;
       const label=(mesesNm[m.mes]||m.mes).substring(0,3)+'/'+m.anoDoc.slice(2);
-      return \`<g>
-        <rect x="\${x}" y="\${130-hRec}" width="\${barW}" height="\${hRec}" rx="3" fill="var(--green)" opacity="0.85"/>
-        <rect x="\${x}" y="\${130-hDesp}" width="\${barW*0.5}" height="\${hDesp}" rx="2" fill="var(--red)" opacity="0.7"/>
-        <text x="\${x+barW/2}" y="148" text-anchor="middle" font-size="9" fill="var(--text3)">\${label}</text>
-      </g>\`;
-    }).join('');
+      bars+='<g>'
+        +'<rect x="'+x+'" y="'+(120-hRec)+'" width="'+barW+'" height="'+hRec+'" rx="3" fill="var(--green)" opacity="0.85"/>'
+        +'<rect x="'+x+'" y="'+(120-hDesp)+'" width="'+(barW*0.5)+'" height="'+hDesp+'" rx="2" fill="var(--red)" opacity="0.7"/>'
+        +'<text x="'+(x+barW/2)+'" y="136" text-anchor="middle" font-size="9" fill="var(--text3)">'+label+'</text>'
+        +'</g>';
+    });
 
-    // tabela
-    const rows=meses.map(m=>`
-      <tr style="cursor:pointer" onclick="window.irParaMes('${m.mes}','${m.anoDoc}')">
-        <td style="font-weight:600">${mesesNm[m.mes]||m.mes} ${m.anoDoc}</td>
-        <td style="color:var(--green);font-family:var(--mono)">${brl(m.caixaTotal)}</td>
-        <td style="color:var(--blue);font-family:var(--mono)">${brl(m.fixasTotal)}</td>
-        <td style="color:var(--amber);font-family:var(--mono)">${brl(m.ocTotal)}</td>
-        <td style="color:var(--green);font-weight:600;font-family:var(--mono)">${brl(m.totalRec)}</td>
-        <td style="color:var(--red);font-family:var(--mono)">${brl(m.despPagas)}</td>
-        <td style="font-family:var(--mono);font-weight:700;color:${m.resultado>=0?'var(--green)':'var(--red)'}">${brl(m.resultado)}</td>
-      </tr>`).join('');
+    let rows='';
+    meses.forEach(function(m){
+      const cor=m.resultado>=0?'var(--green)':'var(--red)';
+      rows+='<tr style="cursor:pointer" onclick="window.irParaMes(\''+m.mes+'\',\''+m.anoDoc+'\')">'
+        +'<td style="font-weight:600">'+(mesesNm[m.mes]||m.mes)+' '+m.anoDoc+'</td>'
+        +'<td style="color:var(--green);font-family:var(--mono)">'+brl(m.caixaTotal)+'</td>'
+        +'<td style="color:var(--blue);font-family:var(--mono)">'+brl(m.fixasTotal)+'</td>'
+        +'<td style="color:var(--amber);font-family:var(--mono)">'+brl(m.ocTotal)+'</td>'
+        +'<td style="color:var(--green);font-weight:600;font-family:var(--mono)">'+brl(m.totalRec)+'</td>'
+        +'<td style="color:var(--red);font-family:var(--mono)">'+brl(m.despPagas)+'</td>'
+        +'<td style="font-family:var(--mono);font-weight:700;color:'+cor+'">'+brl(m.resultado)+'</td>'
+        +'</tr>';
+    });
 
-    el.innerHTML=\`
-      <div class="page-header"><div><div class="page-title">Histórico Mensal</div><div class="page-sub">Comparativo financeiro por mês</div></div></div>
-      <div class="panel" style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:12px;text-transform:uppercase">Receitas vs Despesas</div>
-        <div style="overflow-x:auto">
-          <svg viewBox="0 0 \${svgW} 160" style="width:100%;min-width:\${svgW}px;height:160px">\${bars}
-            <text x="8" y="12" font-size="9" fill="var(--green)">■ Receita</text>
-            <text x="60" y="12" font-size="9" fill="var(--red)">■ Despesa</text>
-          </svg>
-        </div>
-      </div>
-      <div class="panel" style="overflow-x:auto">
-        <table class="dt" style="width:100%">
-          <thead><tr>
-            <th>Mês</th><th style="color:var(--green)">Caixa</th><th style="color:var(--blue)">Fixas</th>
-            <th style="color:var(--amber)">Ocasionais</th><th style="color:var(--green)">Total Rec.</th>
-            <th style="color:var(--red)">Desp. Pagas</th><th>Resultado</th>
-          </tr></thead>
-          <tbody>\${rows}</tbody>
-        </table>
-        <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
-          <i class="ti ti-click"></i> Clique em um mês para navegar até ele
-        </div>
-      </div>\`;
+    el.innerHTML=''
+      +'<div class="page-header"><div>'
+      +'<div class="page-title">Histórico Mensal</div>'
+      +'<div class="page-sub">Comparativo financeiro por mês</div>'
+      +'</div></div>'
+      +'<div class="panel" style="margin-bottom:16px">'
+      +'<div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:12px;text-transform:uppercase">Receitas vs Despesas</div>'
+      +'<div style="overflow-x:auto">'
+      +'<svg viewBox="0 0 '+svgW+' 150" style="width:100%;min-width:'+svgW+'px;height:150px">'
+      +bars
+      +'<text x="8" y="12" font-size="9" fill="var(--green)">■ Receita</text>'
+      +'<text x="60" y="12" font-size="9" fill="var(--red)">■ Despesa</text>'
+      +'</svg></div></div>'
+      +'<div class="panel" style="overflow-x:auto">'
+      +'<table class="dt" style="width:100%"><thead><tr>'
+      +'<th>Mês</th><th style="color:var(--green)">Caixa</th><th style="color:var(--blue)">Fixas</th>'
+      +'<th style="color:var(--amber)">Ocasionais</th><th style="color:var(--green)">Total Rec.</th>'
+      +'<th style="color:var(--red)">Desp. Pagas</th><th>Resultado</th>'
+      +'</tr></thead><tbody>'+rows+'</tbody></table>'
+      +'<div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
+      +'Clique em um mês para navegar até ele</div>'
+      +'</div>';
   }catch(e){console.error(e);el.innerHTML='<div style="padding:32px;text-align:center;color:var(--red)">Erro ao carregar histórico.</div>';}
 }
 
@@ -1857,8 +1851,9 @@ window.irParaMes=function(mes,anoDoc){
   if(_des)_des.value=mes;if(_mob)_mob.value=mes;if(_yr)_yr.value=anoDoc;
   const mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
   const dsEl=document.getElementById('dashSub');if(dsEl)dsEl.textContent=(mesesNm[mes]||mes)+' '+anoDoc;
-  loadMonth(mes).then(()=>showPage('dashboard'));
+  loadMonth(mes).then(function(){showPage('dashboard');});
 }
+
 
 window.changeMonth=function(){
   const mob=document.getElementById('monthSelect');
