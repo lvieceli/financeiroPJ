@@ -1868,12 +1868,14 @@ window.renderHistorico=async function(){
   try{
     const snap=await getDocs(collection(db,'meses'));
     const meses=[];
+    // usa Map para deduplicar: chave nova (Mai_2026) prevalece sobre legada (Mai)
+    const mesesMap=new Map();
     snap.forEach(d=>{
       const id=d.id;
       const parts=id.split('_');
-      // aceita chave legada 'Mai' e nova 'Mai_2026'
       const mes=parts[0];
       const anoDoc=parts.length>=2?parts[1]:'2026';
+      const chave=mes+'_'+anoDoc;
       const dd=d.data();
       const caixaTotal=(dd.caixa||[]).reduce((s,dia)=>s+((dia.fech||0)+(dia.retir||0)-(dia.abert||0)>0?(dia.fech||0)+(dia.retir||0)-(dia.abert||0):0)+(dia.cartao||0)+(dia.pix||0)+(dia.outros||0),0);
       const fixasTotal=(dd.fixas||[]).reduce((s,cat)=>s+(cat.itens||[]).reduce((ss,it)=>ss+(it.rec||0),0),0);
@@ -1882,9 +1884,13 @@ window.renderHistorico=async function(){
       const despTotal=(dd.despesas||[]).reduce((s,cat)=>s+(cat.itens||[]).reduce((ss,it)=>ss+(it.valor||0),0),0);
       const totalRec=caixaTotal+fixasTotal+ocTotal;
       const resultado=totalRec-despPagas;
-      meses.push({id,mes,anoDoc,idx:ordemM.indexOf(mes),caixaTotal,fixasTotal,ocTotal,despPagas,despTotal,totalRec,resultado});
+      const entry={id,mes,anoDoc,idx:ordemM.indexOf(mes),caixaTotal,fixasTotal,ocTotal,despPagas,despTotal,totalRec,resultado};
+      if(!mesesMap.has(chave)||id.includes('_')){
+        mesesMap.set(chave,entry);
+      }
     });
-    meses.sort((a,b)=>a.anoDoc!==b.anoDoc?a.anoDoc.localeCompare(b.anoDoc):a.idx-b.idx);
+    meses.push(...mesesMap.values());
+        meses.sort((a,b)=>a.anoDoc!==b.anoDoc?a.anoDoc.localeCompare(b.anoDoc):a.idx-b.idx);
     if(!meses.length){el.innerHTML='<div style="padding:32px;text-align:center;color:var(--text3)">Nenhum dado encontrado.</div>';return;}
 
     const maxVal=Math.max(...meses.map(m=>Math.max(m.totalRec,m.despPagas)),1);
