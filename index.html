@@ -149,15 +149,32 @@ async function loadMonth(month){
   if(unsubscribe){unsubscribe();unsubscribe=null;}
   showLoading(true);
   try{
-    const snap=await getDoc(doc(db,'meses',cm+'_'+ano));
+    // tenta chave nova (Jun_2026), depois legada (Jun)
+    let snap=await getDoc(doc(db,'meses',cm+'_'+ano));
+    if(!snap.exists()) snap=await getDoc(doc(db,'meses',cm));
     if(snap.exists()){
       data=applySnap(snap.data());
     } else {
-      const ordem=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map(m=>m+'_'+ano);
-      const idx=ordem.indexOf(cm+'_'+ano);
+      // fallback: busca mês anterior com chave nova ou legada
+      const ordemBase=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const idx=ordemBase.indexOf(cm);
       let base=null;
-      for(let i=idx-1;i>=0;i--){try{const s=await getDoc(doc(db,'meses',ordem[i]));if(s.exists()){base=s.data();break;}}catch(e){}}
-      if(!base){for(let i=idx+1;i<ordem.length;i++){try{const s=await getDoc(doc(db,'meses',ordem[i]));if(s.exists()){base=s.data();break;}}catch(e){}}}
+      for(let i=idx-1;i>=0;i--){
+        try{
+          let s=await getDoc(doc(db,'meses',ordemBase[i]+'_'+ano));
+          if(!s.exists())s=await getDoc(doc(db,'meses',ordemBase[i]));
+          if(s.exists()){base=s.data();break;}
+        }catch(e){}
+      }
+      if(!base){
+        for(let i=idx+1;i<ordemBase.length;i++){
+          try{
+            let s=await getDoc(doc(db,'meses',ordemBase[i]+'_'+ano));
+            if(!s.exists())s=await getDoc(doc(db,'meses',ordemBase[i]));
+            if(s.exists()){base=s.data();break;}
+          }catch(e){}
+        }
+      }
       if(base){
         data={
           caixa:Array.from({length:31},(_,i)=>({dia:i+1,abert:0,fech:0,retir:0,cartao:0,pix:0,outros:0})),
@@ -169,7 +186,9 @@ async function loadMonth(month){
         };
       } else {data=defData();}
     }
-    unsubscribe=onSnapshot(doc(db,'meses',cm+'_'+ano),snap=>{
+    // escuta doc novo; se não existir, tenta legado
+    const docKey=(await getDoc(doc(db,'meses',cm+'_'+ano))).exists()?cm+'_'+ano:cm;
+    unsubscribe=onSnapshot(doc(db,'meses',docKey),snap=>{
       if(snap.exists()&&focusCount===0&&!ignorarSnapshot){
         data=applySnap(snap.data());
         if(isAdmin())renderDashboard();
@@ -1773,8 +1792,9 @@ window.renderHistorico=async function(){
     snap.forEach(d=>{
       const id=d.id;
       const parts=id.split('_');
-      if(parts.length<2)return;
-      const mes=parts[0],anoDoc=parts[1];
+      // aceita chave legada 'Mai' e nova 'Mai_2026'
+      const mes=parts[0];
+      const anoDoc=parts.length>=2?parts[1]:'2026';
       const dd=d.data();
       const caixaTotal=(dd.caixa||[]).reduce((s,dia)=>s+((dia.fech||0)+(dia.retir||0)-(dia.abert||0)>0?(dia.fech||0)+(dia.retir||0)-(dia.abert||0):0)+(dia.cartao||0)+(dia.pix||0)+(dia.outros||0),0);
       const fixasTotal=(dd.fixas||[]).reduce((s,cat)=>s+(cat.itens||[]).reduce((ss,it)=>ss+(it.rec||0),0),0);
