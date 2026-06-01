@@ -2176,13 +2176,13 @@ window.abrirCalendario=function(inputId,callback){
   const input=document.getElementById(inputId);
   const ex=document.getElementById('calPicker');if(ex)ex.remove();
   const agora=new Date();
-  let mes=agora.getMonth(),ano=agora.getFullYear();
+  let calMes=agora.getMonth(),calAno=agora.getFullYear();
   // se já tem valor no input, começa nele
   if(input){
     const v=input.value;
     if(v&&v.includes('/')){
       const[d,m]=v.split('/').map(Number);
-      if(m>=1&&m<=12){mes=m-1;}
+      if(m>=1&&m<=12){calMes=m-1;}
     }
   }
   const div=document.createElement('div');div.id='calPicker';
@@ -2190,29 +2190,29 @@ window.abrirCalendario=function(inputId,callback){
   div.onclick=e=>{if(e.target===div)div.remove();};
   div.innerHTML=`<div id="calBox" style="background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:18px;width:290px;box-shadow:0 8px 40px rgba(0,0,0,.5)"></div>`;
   document.body.appendChild(div);
-  window._calRender(mes,ano,inputId);
+  window._calRender(calMes,calAno,inputId);
 }
 
-window._calRender=function(mes,ano,inputId){
+window._calRender=function(calMes,calAno,inputId){
   const box=document.getElementById('calBox');if(!box)return;
   const meses=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const diasSem=['D','S','T','Q','Q','S','S'];
   const hoje=new Date();
-  const primeiroDia=new Date(ano,mes,1).getDay();
-  const totalDias=new Date(ano,mes+1,0).getDate();
+  const primeiroDia=new Date(calAno,calMes,1).getDay();
+  const totalDias=new Date(calAno,calMes+1,0).getDate();
   let dias='';
   for(let i=0;i<primeiroDia;i++)dias+=`<div></div>`;
   for(let d=1;d<=totalDias;d++){
-    const isHoje=d===hoje.getDate()&&mes===hoje.getMonth()&&ano===hoje.getFullYear();
+    const isHoje=d===hoje.getDate()&&calMes===hoje.getMonth()&&calAno===hoje.getFullYear();
     const dd=d.toString().padStart(2,'0');
-    const mm=(mes+1).toString().padStart(2,'0');
-    dias+=`<div onclick="window._calSelect('${dd}','${mm}','${ano}','${inputId}')" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;font-size:13px;${isHoje?'background:var(--blue);color:#fff;font-weight:600':''};" onmouseover="this.style.background=this.style.background||'var(--bg4)'" onmouseout="${isHoje?'this.style.background=\'var(--blue)\'':'this.style.background=\'\''}">${d}</div>`;
+    const mm=(calMes+1).toString().padStart(2,'0');
+    dias+=`<div onclick="window._calSelect('${dd}','${mm}','${calAno}','${inputId}')" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;font-size:13px;${isHoje?'background:var(--blue);color:#fff;font-weight:600':''};" onmouseover="this.style.background=this.style.background||'var(--bg4)'" onmouseout="${isHoje?'this.style.background=\'var(--blue)\'':'this.style.background=\'\''}">${d}</div>`;
   }
   box.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <button onclick="window._calRender(${mes===0?11:mes-1},${mes===0?ano-1:ano},'${inputId}')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;padding:4px 8px;border-radius:6px;line-height:1">‹</button>
-      <span style="font-size:14px;font-weight:600">${meses[mes]} ${ano}</span>
-      <button onclick="window._calRender(${mes===11?0:mes+1},${mes===11?ano+1:ano},'${inputId}')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;padding:4px 8px;border-radius:6px;line-height:1">›</button>
+      <button onclick="window._calRender(${calMes===0?11:calMes-1},${calMes===0?calAno-1:calAno},'${inputId}')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;padding:4px 8px;border-radius:6px;line-height:1">‹</button>
+      <span style="font-size:14px;font-weight:600">${meses[calMes]} ${calAno}</span>
+      <button onclick="window._calRender(${calMes===11?0:calMes+1},${calMes===11?calAno+1:calAno},'${inputId}')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;padding:4px 8px;border-radius:6px;line-height:1">›</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:8px">
       ${diasSem.map(d=>`<div style="text-align:center;font-size:11px;color:var(--text3);font-weight:500;padding:4px 0">${d}</div>`).join('')}
