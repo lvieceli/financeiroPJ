@@ -1956,9 +1956,11 @@ window.renderHistorico=async function(){
       const x=i*(barW+gap)+paddingL;
       const cx=x+barW/2;
       const cyRec=chartH+2-hRec;
+      const hRes=Math.round((Math.abs(m.resultado)/maxVal)*chartH);
+      const cyRes=m.resultado>=0?chartH+2-hRes:chartH+2+hRes;
       const label=(mesesNm[m.mes]||m.mes).substring(0,3)+'/'+m.anoDoc.slice(2);
       const cor=m.resultado>=0?'#22c55e':'#ef4444';
-      pontosLinha.push({cx,cyRec,totalRec:m.totalRec,resultado:m.resultado,cor});
+      pontosLinha.push({cx,cyRec:cyRes,totalRec:m.totalRec,resultado:m.resultado,cor});
       bars+='<g>'
         +'<rect x="'+x+'" y="'+cyRec+'" width="'+barW+'" height="'+hRec+'" rx="4" fill="#22c55e" opacity="0.2"/>'
         +'<rect x="'+x+'" y="'+(chartH+2-hDesp)+'" width="'+(barW*0.45)+'" height="'+hDesp+'" rx="3" fill="#ef4444" opacity="0.5"/>'
