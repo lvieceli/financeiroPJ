@@ -178,7 +178,7 @@ async function loadMonth(month){
       if(base){
         data={
           caixa:Array.from({length:31},(_,i)=>({dia:i+1,abert:0,fech:0,retir:0,cartao:0,pix:0,outros:0})),
-          fixas:base.fixas.map(cat=>({...cat,itens:cat.itens.map(it=>({...it,rec:0,parcela:it.parcela||''}))})),
+          fixas:base.fixas.map(cat=>({...cat,itens:cat.itens.map(it=>({...it,rec:0,parcela:window.incrementarParcela(it.parcela||'')}))})),
           ocasionais:[],
           despesas:base.despesas.map(cat=>({...cat,itens:cat.itens.map(it=>({...it,valor:0,pago:false,data:''}))})),
           checklistAdmin:normalizeCkAdmin(base.checklistAdmin).map(c=>({...c,done:false,concluidoEm:''})),
@@ -199,6 +199,47 @@ async function loadMonth(month){
   if(isAdmin())renderDashboard();
   // limpa marcações antigas DEPOIS de salvar histórico
   await limparMarcacoesAntigas();
+  // verifica virada de mês e faz backup se necessário
+  if(isAdmin()) await verificarViradaMes();
+}
+
+// ====== BACKUP AUTOMÁTICO NA VIRADA DE MÊS ======
+async function verificarViradaMes(){
+  try{
+    const hoje=new Date();
+    const diaHoje=hoje.getDate();
+    const mesHoje=hoje.getMonth()+1;
+    const anoHoje=hoje.getFullYear();
+
+    // só verifica nos primeiros 3 dias do mês (janela de segurança)
+    if(diaHoje>3)return;
+
+    const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const mesAnteriorIdx=mesHoje-2<0?11:mesHoje-2;
+    const mesAnterior=ordemM[mesAnteriorIdx];
+    const anoAnterior=mesHoje===1?anoHoje-1:anoHoje;
+    const backupKey='backup_'+mesAnterior+'_'+anoAnterior;
+    const docKey=mesAnterior+'_'+anoAnterior;
+
+    // verifica se backup já foi feito
+    const backupSnap=await getDoc(doc(db,'backups',backupKey));
+    if(backupSnap.exists())return;
+
+    // busca doc do mês anterior (chave nova ou legada)
+    let snapMes=await getDoc(doc(db,'meses',docKey));
+    if(!snapMes.exists())snapMes=await getDoc(doc(db,'meses',mesAnterior));
+    if(!snapMes.exists())return;
+
+    // salva backup
+    await setDoc(doc(db,'backups',backupKey),{
+      ...snapMes.data(),
+      _backupFeito:new Date().toISOString(),
+      _backupPor:currentNome,
+      _mesRef:docKey
+    });
+    console.log('Backup automático feito:',backupKey);
+    showToast('Backup de '+mesAnterior+'/'+anoAnterior+' realizado automaticamente!','var(--blue)');
+  }catch(e){console.error('Erro no backup automático:',e);}
 }
 
 // Verifica se tarefas fixas devem aparecer hoje
@@ -1710,7 +1751,7 @@ window.renderFixas=function(){
             <input class="inp inp-sm inp-mono" style="width:90px" value="${it.valor>0?it.valor:''}" placeholder="Valor"
               onchange="window.getData().fixas[${ci}].itens[${ii}].valor=parseFloat(this.value.replace(',','.'))||0;window.saveNow();window.renderFixas();renderDashboard();">
             <input class="inp inp-sm" style="width:50px;text-align:center" value="${it.parcela||''}" placeholder="parc."
-              onchange="window.getData().fixas[${ci}].itens[${ii}].parcela=this.value;window.saveNow();">
+              onchange="window.getData().fixas[${ci}].itens[${ii}].parcela=this.value;window.saveNow();window.propagarParcelas(${ci},${ii},this.value);">
             <span style="font-size:11px;color:var(--text3);white-space:nowrap">Rec.:</span>
             <input class="inp inp-sm inp-mono" style="width:90px" value="${it.rec>0?it.rec:''}" placeholder="0,00"
               onchange="window.getData().fixas[${ci}].itens[${ii}].rec=parseFloat(this.value.replace(',','.'))||0;window.saveNow();window.renderFixas();renderDashboard();">
@@ -1908,19 +1949,38 @@ window.renderHistorico=async function(){
       if(p>0)grid+='<text x="'+(paddingL-4)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="var(--text3)">'+brl(val).replace('R$ ','').replace('R$ ','')+'</text>';
     });
     let bars='';
+    const pontosLinha=[];
     meses.forEach(function(m,i){
       const hRec=Math.max(2,Math.round((m.totalRec/maxVal)*chartH));
       const hDesp=Math.max(m.despPagas>0?2:0,Math.round((m.despPagas/maxVal)*chartH));
       const x=i*(barW+gap)+paddingL;
+      const cx=x+barW/2;
+      const cyRec=chartH+2-hRec;
       const label=(mesesNm[m.mes]||m.mes).substring(0,3)+'/'+m.anoDoc.slice(2);
       const cor=m.resultado>=0?'#22c55e':'#ef4444';
+      pontosLinha.push({cx,cyRec,totalRec:m.totalRec,resultado:m.resultado,cor});
       bars+='<g>'
-        +'<rect x="'+x+'" y="'+(chartH+2-hRec)+'" width="'+barW+'" height="'+hRec+'" rx="4" fill="#22c55e" opacity="0.85"/>'
-        +'<rect x="'+x+'" y="'+(chartH+2-hDesp)+'" width="'+(barW*0.45)+'" height="'+hDesp+'" rx="3" fill="#ef4444" opacity="0.75"/>'
-        +'<text x="'+(x+barW/2)+'" y="'+(chartH+16)+'" text-anchor="middle" font-size="10" font-weight="500" fill="var(--text3)">'+label+'</text>'
-        +'<text x="'+(x+barW/2)+'" y="'+(chartH+2-hRec-5)+'" text-anchor="middle" font-size="9" fill="'+cor+'">'+brl(m.resultado).replace('R$ ','R$').replace('R$ ','R$')+'</text>'
+        +'<rect x="'+x+'" y="'+cyRec+'" width="'+barW+'" height="'+hRec+'" rx="4" fill="#22c55e" opacity="0.2"/>'
+        +'<rect x="'+x+'" y="'+(chartH+2-hDesp)+'" width="'+(barW*0.45)+'" height="'+hDesp+'" rx="3" fill="#ef4444" opacity="0.5"/>'
+        +'<text x="'+cx+'" y="'+(chartH+16)+'" text-anchor="middle" font-size="10" font-weight="500" fill="var(--text3)">'+label+'</text>'
         +'</g>';
     });
+    // linha de evolução de receita
+    let linha='';
+    if(pontosLinha.length>1){
+      let pontos=pontosLinha.map(function(p){return p.cx+','+p.cyRec;}).join(' ');
+      linha='<polyline points="'+pontos+'" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>';
+      // pontos e labels de resultado
+      pontosLinha.forEach(function(p){
+        linha+='<circle cx="'+p.cx+'" cy="'+p.cyRec+'" r="4" fill="'+p.cor+'" stroke="var(--bg2)" stroke-width="1.5"/>';
+        linha+='<text x="'+p.cx+'" y="'+(p.cyRec-10)+'" text-anchor="middle" font-size="9" font-weight="600" fill="'+p.cor+'">'+brl(p.resultado).replace('R$ ','R$')+'</text>';
+      });
+    } else if(pontosLinha.length===1){
+      // só um mês: só o ponto
+      const p=pontosLinha[0];
+      linha='<circle cx="'+p.cx+'" cy="'+p.cyRec+'" r="5" fill="'+p.cor+'" stroke="var(--bg2)" stroke-width="2"/>';
+      linha+='<text x="'+p.cx+'" y="'+(p.cyRec-12)+'" text-anchor="middle" font-size="9" font-weight="600" fill="'+p.cor+'">'+brl(p.resultado).replace('R$ ','R$')+'</text>';
+    }
 
     let rows='';
     meses.forEach(function(m){
@@ -1945,11 +2005,10 @@ window.renderHistorico=async function(){
       +'<div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:12px;text-transform:uppercase">Receitas vs Despesas</div>'
       +'<div style="overflow-x:auto">'
       +'<svg viewBox="0 0 '+svgW+' 200" style="width:100%;min-width:'+Math.min(svgW,800)+'px;height:200px">'
-      +grid+bars
+      +grid+bars+linha
       +'<rect x="'+paddingL+'" y="185" width="12" height="10" rx="2" fill="#22c55e"/>'
       +'<text x="'+(paddingL+16)+'" y="194" font-size="10" fill="var(--text3)">Receita Total</text>'
-      +'<rect x="'+(paddingL+100)+'" y="185" width="12" height="10" rx="2" fill="#ef4444"/>'
-      +'<text x="'+(paddingL+116)+'" y="194" font-size="10" fill="var(--text3)">Despesas Pagas</text>'
+      +'<rect x="'+(paddingL+100)+'" y="185" width="12" height="10" rx="2" fill="#ef4444"/>'      +'<text x="'+(paddingL+116)+'" y="194" font-size="10" fill="var(--text3)">Despesas Pagas</text>'      +'<line x1="'+(paddingL+210)+'" y1="190" x2="'+(paddingL+222)+'" y2="190" stroke="#22c55e" stroke-width="2.5"/>'      +'<circle cx="'+(paddingL+216)+'" cy="190" r="3" fill="#22c55e"/>'      +'<text x="'+(paddingL+226)+'" y="194" font-size="10" fill="var(--text3)">Resultado</text>'
       +'</svg></div></div>'
       +'<div class="panel" style="overflow-x:auto">'
       +'<table class="dt" style="width:100%"><thead><tr>'
@@ -1957,9 +2016,9 @@ window.renderHistorico=async function(){
       +'<th style="color:var(--amber)">Ocasionais</th><th style="color:var(--green)">Total Rec.</th>'
       +'<th style="color:var(--red)">Desp. Pagas</th><th>Resultado</th>'
       +'</tr></thead><tbody>'+rows+'</tbody></table>'
-      +'<div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
-      +'Clique em um mês para navegar até ele</div>'
-      +'</div>';
+      +'<div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'      +'Clique em um mês para navegar até ele</div>'      +'</div>'      +'<div class="panel" style="margin-top:16px">'      +'<div class="ph"><span class="ph-title"><i class="ti ti-database-export"></i>Backups</span>'      +'<button class="btn btn-primary" style="font-size:11px;padding:5px 12px" onclick="window.fazerBackupManual()"><i class="ti ti-device-floppy"></i>Backup agora</button></div>'      +'<div id="listaBackups" style="padding:8px 0"><div style="color:var(--text3);font-size:12px">Carregando...</div></div>'      +'</div>';
+    // carrega lista de backups
+    window.carregarListaBackups();
   }catch(e){console.error(e);el.innerHTML='<div style="padding:32px;text-align:center;color:var(--red)">Erro ao carregar histórico.</div>';}
 }
 
@@ -1974,6 +2033,116 @@ window.irParaMes=function(mes,anoDoc){
   loadMonth(mes).then(function(){showPage('dashboard');});
 }
 
+
+
+// ====== BACKUP MANUAL ======
+window.fazerBackupManual=async function(){
+  try{
+    const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    // backup do mês atual carregado
+    const backupKey='backup_'+cm+'_'+ano+'_manual_'+Date.now();
+    await setDoc(doc(db,'backups',backupKey),{
+      ...JSON.parse(JSON.stringify(data)),
+      _backupFeito:new Date().toISOString(),
+      _backupPor:currentNome,
+      _backupTipo:'manual',
+      _mesRef:cm+'_'+ano
+    });
+    showToast('Backup de '+cm+'/'+ano+' salvo!','var(--blue)');
+    window.carregarListaBackups();
+  }catch(e){showToast('Erro no backup','var(--red)');console.error(e);}
+}
+
+window.carregarListaBackups=async function(){
+  const el=document.getElementById('listaBackups');if(!el)return;
+  try{
+    const snaps=await getDocs(collection(db,'backups'));
+    const bks=[];
+    snaps.forEach(d=>bks.push({id:d.id,...d.data()}));
+    bks.sort((a,b)=>b._backupFeito.localeCompare(a._backupFeito));
+    if(!bks.length){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px 0">Nenhum backup encontrado.</div>';return;}
+    const mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
+    el.innerHTML=bks.slice(0,10).map(function(b){
+      const tipo=b._backupTipo==='manual'?'Manual':'Auto';
+      const corTipo=b._backupTipo==='manual'?'var(--blue)':'var(--green)';
+      const data=b._backupFeito?new Date(b._backupFeito).toLocaleString('pt-BR'):'—';
+      const ref=b._mesRef||b.id;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">'
+        +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:'+corTipo+'22;color:'+corTipo+'">'+tipo+'</span>'
+        +'<span style="font-size:12px;color:var(--text);flex:1">'+ref.replace('_',' /')+'</span>'
+        +'<span style="font-size:11px;color:var(--text3)">'+data+'</span>'
+        +'<span style="font-size:11px;color:var(--text3)">por '+( b._backupPor||'—')+'</span>'
+        +'</div>';
+    }).join('');
+  }catch(e){el.innerHTML='<div style="color:var(--red);font-size:12px">Erro ao carregar backups.</div>';}
+}
+
+
+// ====== PARCELAS AUTOMÁTICAS ======
+
+// incrementa "5/12" → "6/12", "12/12" → "12/12" (não passa do total), "" → ""
+window.incrementarParcela=function(parcela){
+  if(!parcela||!parcela.includes('/'))return parcela;
+  const parts=parcela.trim().split('/');
+  if(parts.length!==2)return parcela;
+  const atual=parseInt(parts[0]);
+  const total=parseInt(parts[1]);
+  if(isNaN(atual)||isNaN(total))return parcela;
+  const proximo=Math.min(atual+1,total);
+  return proximo+'/'+total;
+};
+
+// propaga alteração de parcela em cascata para todos os meses futuros no Firestore
+window.propagarParcelas=async function(catIdx,itemIdx,novaParcelaStr){
+  if(!novaParcelaStr||!novaParcelaStr.includes('/'))return;
+  const parts=novaParcelaStr.trim().split('/');
+  if(parts.length!==2)return;
+  const atual=parseInt(parts[0]);
+  const total=parseInt(parts[1]);
+  if(isNaN(atual)||isNaN(total)||total<=0)return;
+
+  const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const idxMesAtual=ordemM.indexOf(cm);
+  if(idxMesAtual<0)return;
+
+  // busca todos os meses futuros que existem no Firestore
+  try{
+    const snap=await getDocs(collection(db,'meses'));
+    const mesesFuturos=[];
+    snap.forEach(d=>{
+      const id=d.id;
+      const p=id.split('_');
+      const mes=p[0];
+      const anoDoc=p.length>=2?p[1]:ano;
+      const idxM=ordemM.indexOf(mes);
+      if(idxM<0)return;
+      // é futuro se: ano maior, ou mesmo ano e mês posterior
+      const futuro=(anoDoc>ano)||(anoDoc===ano&&idxM>idxMesAtual);
+      if(futuro)mesesFuturos.push({id,mes,anoDoc,idxM,data:d.data()});
+    });
+
+    // ordena cronologicamente
+    mesesFuturos.sort((a,b)=>
+      a.anoDoc!==b.anoDoc?a.anoDoc.localeCompare(b.anoDoc):a.idxM-b.idxM
+    );
+
+    if(!mesesFuturos.length)return;
+
+    // propaga incrementando a partir do mês atual
+    let parcelaCorrente=atual;
+    for(const mf of mesesFuturos){
+      parcelaCorrente=Math.min(parcelaCorrente+1,total);
+      const dd=mf.data;
+      if(!dd.fixas||!dd.fixas[catIdx]||!dd.fixas[catIdx].itens||!dd.fixas[catIdx].itens[itemIdx])continue;
+      const novaStr=parcelaCorrente+'/'+total;
+      dd.fixas[catIdx].itens[itemIdx].parcela=novaStr;
+      await setDoc(doc(db,'meses',mf.id),dd);
+    }
+
+    const total2=mesesFuturos.length;
+    if(total2>0)showToast('Parcelas atualizadas em '+total2+' mes'+(total2>1?'es':'')+'!','var(--blue)');
+  }catch(e){console.error('Erro ao propagar parcelas:',e);}
+};
 
 window.changeMonth=function(src){
   const mob=document.getElementById('monthSelect');
