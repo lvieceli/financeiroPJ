@@ -1095,21 +1095,29 @@ window.renderPonto=async function renderPonto(){
     };
     const fmtMins=m=>m>0?Math.floor(m/60)+'h'+(m%60).toString().padStart(2,'0')+'m':'—';
 
-    // extrai meses disponíveis dos registros (formato: DD_MM_YYYY → MM_YYYY)
+    // extrai meses disponíveis usando campo 'data' do registro (formato DD/MM/YYYY ou DD_MM_YYYY)
     const mesesDisp=new Set();
     registros.forEach(r=>{
-      const p=r.id.split('_');
+      // data pode ser "01/06/2026" ou "01_06_2026"
+      const d=r.data||'';
+      const sep=d.includes('/')?'/':'_';
+      const p=d.split(sep);
       if(p.length>=3)mesesDisp.add(p[1]+'_'+p[2]);
     });
-    const mesesOrdenados=[...mesesDisp].sort((a,b)=>a.localeCompare(b));
-    // mês selecionado: pega da variável global ou o mais recente
+    const mesesOrdenados=[...mesesDisp].sort((a,b)=>{
+      const [ma,ya]=a.split('_');const [mb,yb]=b.split('_');
+      return ya!==yb?ya.localeCompare(yb):ma.localeCompare(mb);
+    });
     if(!window._pontoMesSel||!mesesDisp.has(window._pontoMesSel)){
       window._pontoMesSel=mesesOrdenados[mesesOrdenados.length-1]||'';
     }
     const mesSel=window._pontoMesSel;
-    // filtra registros do mês selecionado
+    // filtra registros do mês selecionado usando campo data
     const regsFiltrados=mesSel?registros.filter(r=>{
-      const p=r.id.split('_');return p.length>=3&&p[1]+'_'+p[2]===mesSel;
+      const d=r.data||'';
+      const sep=d.includes('/')?'/':'_';
+      const p=d.split(sep);
+      return p.length>=3&&p[1]+'_'+p[2]===mesSel;
     }):registros;
 
     // agrupa por funcionário
