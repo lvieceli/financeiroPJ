@@ -520,7 +520,16 @@ async function renderDashboard(){
       snapsAdmin.forEach(d=>{const av={id:d.id,tipo:'admin',...d.data()};if(parseAvData(av))avPend.push(av);});
     }catch(e){}
 
-    const total=ckPend.length+avPend.length;
+    // despesas vencidas ou vencendo hoje
+    const despPend=[];
+    (data.despesas||[]).forEach(function(cat){
+      (cat.itens||[]).forEach(function(d){
+        const st=window._despStatus(d);
+        if(st==='vencida'||st==='hoje')despPend.push({...d,cat:cat.nome,st});
+      });
+    });
+
+    const total=ckPend.length+avPend.length+despPend.length;
     const cor=total===0?'var(--green)':'var(--amber)';
 
     let html='<div style="border-top:1px solid var(--border);padding-top:10px">'
@@ -546,8 +555,26 @@ async function renderDashboard(){
       html+='</div>';
     }
 
-    if(avPend.length>0){
+    if(despPend.length>0){
       html+='<div style="'+(ckPend.length>0?'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)':'')+'">'
+        +'<div style="font-size:10px;font-weight:600;color:var(--red);text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px">Despesas</div>';
+      despPend.forEach(function(d){
+        const isHoje=d.st==='hoje';
+        const corD=isHoje?'var(--amber)':'var(--red)';
+        const bgD=isHoje?'rgba(245,158,11,0.08)':'rgba(239,68,68,0.08)';
+        const label=isHoje?'⚠ Vence hoje':'⚠ Vencida';
+        html+='<div style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;margin-bottom:2px;background:'+bgD+'">'
+          +'<span style="font-size:11px;flex-shrink:0">💳</span>'
+          +'<span style="font-size:12px;color:'+corD+';font-weight:500;flex:1">'+d.nome+'</span>'
+          +'<span style="font-size:9px;color:var(--text3)">'+d.cat+'</span>'
+          +'<span style="font-size:9px;background:'+corD+';color:#000;padding:1px 5px;border-radius:8px;font-weight:700">'+d.data+'</span>'
+          +'</div>';
+      });
+      html+='</div>';
+    }
+
+    if(avPend.length>0){
+      html+='<div style="'+(ckPend.length>0||despPend.length>0?'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)':'')+'">'
         +'<div style="font-size:10px;font-weight:600;color:var(--blue);text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px">Tarefas Avulsas</div>';
       avPend.forEach(function(av){
         html+='<div style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;margin-bottom:2px;background:var(--bg3)">'
@@ -1850,7 +1877,19 @@ window.marcarOcasionalRec=function(i){
   window.saveNow();window.renderOcasionais();renderDashboard();
 }
 
-window.renderDespesas=function(){document.getElementById('despPage').innerHTML=data.despesas.map((cat,ci)=>{const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);return`<div class="panel"><div class="ph"><span class="ph-title"><span style="width:10px;height:10px;border-radius:3px;background:${cat.cor};display:inline-block;flex-shrink:0"></span><input class="inp inp-sm" value="${cat.cat}" style="width:140px" onchange="window.getData().despesas[${ci}].cat=this.value;window.saveNow();renderDashboard()"><input type="color" value="${cat.cor}" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0" onchange="window.getData().despesas[${ci}].cor=this.value;window.saveNow();window.renderDespesas()"></span><span style="display:flex;align-items:center;gap:8px"><span data-pago="${ci}" style="font-size:11px;color:var(--green)">${brl(pago)} pago</span><span data-pend="${ci}" style="font-size:11px;color:var(--red)">${brl(tot-pago)} pend.</span><button class="btn" onclick="window.addItemDesp(${ci})"><i class="ti ti-plus"></i>Item</button><button class="btn btn-danger" style="padding:3px 8px" onclick="window.delCatDesp(${ci})"><i class="ti ti-trash"></i></button></span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Descrição</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>${cat.itens.map((d,di)=>`<tr><td><div class="ac-wrap"><input class="inp inp-sm" style="width:100%;min-width:130px" value="${d.nome}" placeholder="Descrição" id="ac${ci}_${di}" onchange="window.getData().despesas[${ci}].itens[${di}].nome=this.value;window.saveNow()" oninput="window.showAC(${ci},${di},this.value)" onblur="setTimeout(()=>window.hideAC(${ci},${di}),200)" autocomplete="off"><div class="ac-list" id="acl${ci}_${di}"></div></div></td><td><input class="inp inp-sm inp-mono" style="width:90px" value="${d.valor||''}" placeholder="0,00" onchange="window.getData().despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;window.saveNow();renderDashboard()"></td><td style="text-align:right"><span class="badge ${d.pago?'bg-g':'bg-x'}" data-desp="${ci}_${di}" onclick="window.toggleDesp(${ci},${di})">${d.pago?'✓ Pago':'Pendente'}</span></td><td><input class="inp inp-sm" style="width:65px" value="${d.data||''}" placeholder="📅" readonly id="dData_${ci}_${di}" onclick="window.abrirCalendario('dData_'+ci+'_'+di,v=>{window.getData().despesas[ci].itens[di].data=v;window.saveNow()})"></td><td style="text-align:right"><button class="btn" style="padding:3px 6px" onclick="window.delItemDesp(${ci},${di})"><i class="ti ti-x" style="font-size:11px"></i></button></td></tr>`).join('')}</tbody><tfoot><tr><td style="font-size:11px;color:var(--text3)">Total</td><td style="font-family:var(--mono);font-weight:600">${brl(tot)}</td><td colspan="3"></td></tr></tfoot></table></div></div>`;}).join('');}
+window.renderDespesas=function(){document.getElementById('despPage').innerHTML=data.despesas.map((cat,ci)=>{const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);return`<div class="panel"><div class="ph"><span class="ph-title"><span style="width:10px;height:10px;border-radius:3px;background:${cat.cor};display:inline-block;flex-shrink:0"></span><input class="inp inp-sm" value="${cat.cat}" style="width:140px" onchange="window.getData().despesas[${ci}].cat=this.value;window.saveNow();renderDashboard()"><input type="color" value="${cat.cor}" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0" onchange="window.getData().despesas[${ci}].cor=this.value;window.saveNow();window.renderDespesas()"></span><span style="display:flex;align-items:center;gap:8px"><span data-pago="${ci}" style="font-size:11px;color:var(--green)">${brl(pago)} pago</span><span data-pend="${ci}" style="font-size:11px;color:var(--red)">${brl(tot-pago)} pend.</span><button class="btn" onclick="window.addItemDesp(${ci})"><i class="ti ti-plus"></i>Item</button><button class="btn btn-danger" style="padding:3px 8px" onclick="window.delCatDesp(${ci})"><i class="ti ti-trash"></i></button></span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Descrição</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>${cat.itens.map((d,di)=>`<tr><td><div class="ac-wrap"><input class="inp inp-sm" style="width:100%;min-width:130px" value="${d.nome}" placeholder="Descrição" id="ac${ci}_${di}" onchange="window.getData().despesas[${ci}].itens[${di}].nome=this.value;window.saveNow()" oninput="window.showAC(${ci},${di},this.value)" onblur="setTimeout(()=>window.hideAC(${ci},${di}),200)" autocomplete="off"><div class="ac-list" id="acl${ci}_${di}"></div></div></td><td><input class="inp inp-sm inp-mono" style="width:90px" value="${d.valor||''}" placeholder="0,00" onchange="window.getData().despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;window.saveNow();renderDashboard()"></td><td style="text-align:right"><span class="badge ${d.pago?'bg-g':window._despStatus(d)==='vencida'?'bg-x':window._despStatus(d)==='hoje'?'bg-x':window._despStatus(d)==='avencer'?'bg-am':'bg-x'}" data-desp="${ci}_${di}" onclick="window.toggleDesp(${ci},${di})">${d.pago?'✓ Pago':window._despStatus(d)==='vencida'?'⚠ Vencida':window._despStatus(d)==='hoje'?'⚠ Vence hoje':window._despStatus(d)==='avencer'?'📅 A vencer':'Pendente'}</span></td><td><input class="inp inp-sm" style="width:65px" value="${d.data||''}" placeholder="📅" readonly id="dData_${ci}_${di}" onclick="window.abrirCalendario('dData_'+ci+'_'+di,v=>{window.getData().despesas[ci].itens[di].data=v;window.saveNow()})"></td><td style="text-align:right"><button class="btn" style="padding:3px 6px" onclick="window.delItemDesp(${ci},${di})"><i class="ti ti-x" style="font-size:11px"></i></button></td></tr>`).join('')}</tbody><tfoot><tr><td style="font-size:11px;color:var(--text3)">Total</td><td style="font-family:var(--mono);font-weight:600">${brl(tot)}</td><td colspan="3"></td></tr></tfoot></table></div></div>`;}).join('');}
+// retorna status da despesa baseado na data: 'vencida', 'hoje', 'avencer', 'semdata'
+window._despStatus=function(d){
+  if(d.pago)return 'pago';
+  if(!d.data)return 'semdata';
+  const p=d.data.split('/');if(p.length<2)return 'semdata';
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const dData=new Date(hoje.getFullYear(),parseInt(p[1])-1,parseInt(p[0]));
+  if(dData<hoje)return 'vencida';
+  if(dData.getTime()===hoje.getTime())return 'hoje';
+  return 'avencer';
+};
+
 window.toggleDesp=function(ci,di){
   data.despesas[ci].itens[di].pago=!data.despesas[ci].itens[di].pago;
   // atualiza só o badge clicado sem re-renderizar tudo
@@ -2220,7 +2259,7 @@ window._calRender=function(calMes,calAno,inputId){
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${dias}</div>`;
 }
 
-window._calSelect=function(dd,mm,ano,inputId){
+window._calSelect=function(dd,mm,calAno,inputId){
   const valor=`${dd}/${mm}`;
   const input=document.getElementById(inputId);
   if(input){input.value=valor;input.dispatchEvent(new Event('change',{bubbles:true}));input.dispatchEvent(new Event('input',{bubbles:true}));}
@@ -2292,7 +2331,7 @@ select option{background:#1e2430;color:#f0f4ff;font-size:13px;padding:6px 10px}
 .ph-title i{font-size:14px;color:var(--text3)}
 .pb{padding:16px 18px}
 .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:500;cursor:pointer}
-.bg-g{background:var(--green-bg);color:var(--green)}.bg-r{background:var(--red-bg);color:var(--red)}.bg-a{background:var(--amber-bg);color:var(--amber)}.bg-x{background:var(--bg4);color:var(--text3)}.bg-b{background:var(--blue-bg);color:var(--blue)}
+.bg-g{background:var(--green-bg);color:var(--green)}.bg-am{background:rgba(245,158,11,.15);color:var(--amber)}.bg-r{background:var(--red-bg);color:var(--red)}.bg-a{background:var(--amber-bg);color:var(--amber)}.bg-x{background:var(--bg4);color:var(--text3)}.bg-b{background:var(--blue-bg);color:var(--blue)}
 .tab-panel{display:none}.tab-panel.active{display:block}
 .inp{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:var(--font);font-size:13px;color:var(--text);outline:none;transition:.15s}
 .inp:focus{border-color:var(--blue)}
