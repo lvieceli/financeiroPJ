@@ -1095,23 +1095,49 @@ window.renderPonto=async function renderPonto(){
     };
     const fmtMins=m=>m>0?Math.floor(m/60)+'h'+(m%60).toString().padStart(2,'0')+'m':'—';
 
+    // extrai meses disponíveis dos registros (formato: DD_MM_YYYY → MM_YYYY)
+    const mesesDisp=new Set();
+    registros.forEach(r=>{
+      const p=r.id.split('_');
+      if(p.length>=3)mesesDisp.add(p[1]+'_'+p[2]);
+    });
+    const mesesOrdenados=[...mesesDisp].sort((a,b)=>a.localeCompare(b));
+    // mês selecionado: pega da variável global ou o mais recente
+    if(!window._pontoMesSel||!mesesDisp.has(window._pontoMesSel)){
+      window._pontoMesSel=mesesOrdenados[mesesOrdenados.length-1]||'';
+    }
+    const mesSel=window._pontoMesSel;
+    // filtra registros do mês selecionado
+    const regsFiltrados=mesSel?registros.filter(r=>{
+      const p=r.id.split('_');return p.length>=3&&p[1]+'_'+p[2]===mesSel;
+    }):registros;
+
     // agrupa por funcionário
     const porFunc={};
-    registros.forEach(r=>{
+    regsFiltrados.forEach(r=>{
       const nome=r.nome||r.email||r.id;
       if(!porFunc[nome])porFunc[nome]=[];
       porFunc[nome].push(r);
     });
-    // ordena cada funcionário por data decrescente
     Object.keys(porFunc).forEach(n=>porFunc[n].sort((a,b)=>b.id.localeCompare(a.id)));
 
-    const totalGeral=registros.reduce((s,r)=>s+calcMins(r),0);
+    const totalGeral=regsFiltrados.reduce((s,r)=>s+calcMins(r),0);
+    const mesesNmP={Jan:'Jan',Fev:'Fev',Mar:'Mar',Abr:'Abr',Mai:'Mai',Jun:'Jun',Jul:'Jul',Ago:'Ago',Set:'Set',Out:'Out',Nov:'Nov',Dez:'Dez'};
+    const ordemMP=['01','02','03','04','05','06','07','08','09','10','11','12'];
+    const nomeMesSel=mesSel?ordemMP.indexOf(mesSel.split('_')[0])>=0?['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][parseInt(mesSel.split('_')[0])-1]+' '+mesSel.split('_')[1]:mesSel:'Todos';
+
+    const opsMeses=mesesOrdenados.map(m=>{
+      const parts=m.split('_');
+      const nomM=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][parseInt(parts[0])-1]||parts[0];
+      return '<option value="'+m+'"'+(m===mesSel?' selected':'')+'>'+nomM+' '+parts[1]+'</option>';
+    }).join('');
 
     el.innerHTML=`
       <div class="page-header">
-        <div><div class="page-title">Ponto</div><div class="page-sub">Por funcionário — total do mês</div></div>
+        <div><div class="page-title">Ponto</div><div class="page-sub">Por funcionário — ${nomeMesSel}</div></div>
         <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:12px;color:var(--text3)">Total geral: <strong style="color:var(--blue);font-family:var(--mono)">${fmtMins(totalGeral)}</strong></span>
+          <select style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:12px" onchange="window._pontoMesSel=this.value;window.renderPonto()">${opsMeses}</select>
+          <span style="font-size:12px;color:var(--text3)">Total: <strong style="color:var(--blue);font-family:var(--mono)">${fmtMins(totalGeral)}</strong></span>
           <button class="btn" onclick="window.renderPonto()" style="font-size:12px"><i class="ti ti-refresh"></i>Atualizar</button>
         </div>
       </div>
@@ -1877,7 +1903,8 @@ window.marcarOcasionalRec=function(i){
   window.saveNow();window.renderOcasionais();renderDashboard();
 }
 
-window.renderDespesas=function(){document.getElementById('despPage').innerHTML=data.despesas.map((cat,ci)=>{const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);return`<div class="panel"><div class="ph"><span class="ph-title"><span style="width:10px;height:10px;border-radius:3px;background:${cat.cor};display:inline-block;flex-shrink:0"></span><input class="inp inp-sm" value="${cat.cat}" style="width:140px" onchange="window.getData().despesas[${ci}].cat=this.value;window.saveNow();renderDashboard()"><input type="color" value="${cat.cor}" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0" onchange="window.getData().despesas[${ci}].cor=this.value;window.saveNow();window.renderDespesas()"></span><span style="display:flex;align-items:center;gap:8px"><span data-pago="${ci}" style="font-size:11px;color:var(--green)">${brl(pago)} pago</span><span data-pend="${ci}" style="font-size:11px;color:var(--red)">${brl(tot-pago)} pend.</span><button class="btn" onclick="window.addItemDesp(${ci})"><i class="ti ti-plus"></i>Item</button><button class="btn btn-danger" style="padding:3px 8px" onclick="window.delCatDesp(${ci})"><i class="ti ti-trash"></i></button></span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Descrição</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>${cat.itens.map((d,di)=>`<tr><td><div class="ac-wrap"><input class="inp inp-sm" style="width:100%;min-width:130px" value="${d.nome}" placeholder="Descrição" id="ac${ci}_${di}" onchange="window.getData().despesas[${ci}].itens[${di}].nome=this.value;window.saveNow()" oninput="window.showAC(${ci},${di},this.value)" onblur="setTimeout(()=>window.hideAC(${ci},${di}),200)" autocomplete="off"><div class="ac-list" id="acl${ci}_${di}"></div></div></td><td><input class="inp inp-sm inp-mono" style="width:90px" value="${d.valor||''}" placeholder="0,00" onchange="window.getData().despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;window.saveNow();renderDashboard()"></td><td style="text-align:right"><span class="badge ${d.pago?'bg-g':window._despStatus(d)==='vencida'?'bg-x':window._despStatus(d)==='hoje'?'bg-x':window._despStatus(d)==='avencer'?'bg-am':'bg-x'}" data-desp="${ci}_${di}" onclick="window.toggleDesp(${ci},${di})">${d.pago?'✓ Pago':window._despStatus(d)==='vencida'?'⚠ Vencida':window._despStatus(d)==='hoje'?'⚠ Vence hoje':window._despStatus(d)==='avencer'?'📅 A vencer':'Pendente'}</span></td><td><input class="inp inp-sm" style="width:65px" value="${d.data||''}" placeholder="📅" readonly id="dData_${ci}_${di}" onclick="window.abrirCalendario('dData_'+ci+'_'+di,v=>{window.getData().despesas[ci].itens[di].data=v;window.saveNow()})"></td><td style="text-align:right"><button class="btn" style="padding:3px 6px" onclick="window.delItemDesp(${ci},${di})"><i class="ti ti-x" style="font-size:11px"></i></button></td></tr>`).join('')}</tbody><tfoot><tr><td style="font-size:11px;color:var(--text3)">Total</td><td style="font-family:var(--mono);font-weight:600">${brl(tot)}</td><td colspan="3"></td></tr></tfoot></table></div></div>`;}).join('');}
+window.renderDespesas=function(){document.getElementById('despPage').innerHTML=data.despesas.map((cat,ci)=>{const tot=cat.itens.reduce((s,d)=>s+(d.valor||0),0);const pago=cat.itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);return`<div class="panel"><div class="ph"><span class="ph-title"><span style="width:10px;height:10px;border-radius:3px;background:${cat.cor};display:inline-block;flex-shrink:0"></span><input class="inp inp-sm" value="${cat.cat}" style="width:140px" onchange="window.getData().despesas[${ci}].cat=this.value;window.saveNow();renderDashboard()"><input type="color" value="${cat.cor}" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0" onchange="window.getData().despesas[${ci}].cor=this.value;window.saveNow();window.renderDespesas()"></span><span style="display:flex;align-items:center;gap:8px"><span data-pago="${ci}" style="font-size:11px;color:var(--green)">${brl(pago)} pago</span><span data-pend="${ci}" style="font-size:11px;color:var(--red)">${brl(tot-pago)} pend.</span><button class="btn" onclick="window.addItemDesp(${ci})"><i class="ti ti-plus"></i>Item</button><button class="btn btn-danger" style="padding:3px 8px" onclick="window.delCatDesp(${ci})"><i class="ti ti-trash"></i></button></span></div><div style="overflow-x:auto"><table class="dt" style="width:100%"><thead><tr><th>Descrição</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>${cat.itens.map((d,di)=>`<tr><td><div class="ac-wrap"><input class="inp inp-sm" style="width:100%;min-width:130px" value="${d.nome}" placeholder="Descrição" id="ac${ci}_${di}" onchange="window.getData().despesas[${ci}].itens[${di}].nome=this.value;window.saveNow()" oninput="window.showAC(${ci},${di},this.value)" onblur="setTimeout(()=>window.hideAC(${ci},${di}),200)" autocomplete="off"><div class="ac-list" id="acl${ci}_${di}"></div></div></td><td><input class="inp inp-sm inp-mono" style="width:90px" value="${d.valor||''}" placeholder="0,00" onchange="window.getData().despesas[${ci}].itens[${di}].valor=parseFloat(this.value)||0;window.saveNow();renderDashboard()"></td><td style="text-align:right"><span class="badge ${d.pago?'bg-g':window._despStatus(d)==='vencida'?'bg-x':window._despStatus(d)==='hoje'?'bg-x':window._despStatus(d)==='avencer'?'bg-am':'bg-x'}" data-desp="${ci}_${di}" onclick="window.toggleDesp(${ci},${di})">${d.pago?'✓ Pago':window._despStatus(d)==='vencida'?'⚠ Vencida':window._despStatus(d)==='hoje'?'⚠ Vence hoje':window._despStatus(d)==='avencer'?'📅 A vencer':'Pendente'}</span></td><td><input class="inp inp-sm" style="width:65px" value="${d.data||''}" placeholder="dd/mm" id="dData_${ci}_${di}" style="width:52px;text-align:center" readonly>
+              <button class="btn" style="padding:3px 8px;flex-shrink:0" onclick="window.abrirCalendario('dData_'+${ci}+'_'+${di},v=>{window.getData().despesas[${ci}].itens[${di}].data=v;window.saveNow();window.renderDespesas()})"><i class="ti ti-calendar" style="font-size:12px"></i></button></td><td style="text-align:right"><button class="btn" style="padding:3px 6px" onclick="window.delItemDesp(${ci},${di})"><i class="ti ti-x" style="font-size:11px"></i></button></td></tr>`).join('')}</tbody><tfoot><tr><td style="font-size:11px;color:var(--text3)">Total</td><td style="font-family:var(--mono);font-weight:600">${brl(tot)}</td><td colspan="3"></td></tr></tfoot></table></div></div>`;}).join('');}
 // retorna status da despesa baseado na data: 'vencida', 'hoje', 'avencer', 'semdata'
 window._despStatus=function(d){
   if(d.pago)return 'pago';
