@@ -1136,15 +1136,33 @@ window.renderPonto=async function renderPonto(){
       return p.length>=3&&p[1]+'_'+p[2]===mesSel;
     }):registros;
 
-    // agrupa por email do funcionário (chave única)
+    // agrupa por email — extrai email do id do documento se não tiver no campo
+    const _extrairEmail=r=>{
+      if(r.email&&r.email.includes('@'))return r.email.toLowerCase().trim();
+      // id formato: email_substituido_DD_MM_YYYY — extrai parte do email
+      const p=r.id.split('_');
+      // tenta reconstruir email dos primeiros segmentos
+      if(p.length>=3){
+        // últimos 3 segmentos são DD_MM_YYYY
+        const emailParts=p.slice(0,p.length-3);
+        // comum: nome_dominio → nome@dominio.com ou nome_dominio_ext
+        if(emailParts.length>=2){
+          // tenta corresponder com emails conhecidos pelo nome
+          const emailStr=emailParts.join('_');
+          if(emailStr.includes('joao')||emailStr.includes('pereira'))return 'pereira.joao47@hotmail.com';
+          if(emailStr.includes('lfuganti')||emailStr.includes('lorena'))return 'lfuganti@gmail.com';
+          return emailStr;
+        }
+      }
+      return r.email||r.id;
+    };
     const porFunc={};
     const nomeFunc={};
     regsFiltrados.forEach(r=>{
-      const chave=r.email||r.id;
+      const chave=_extrairEmail(r);
       if(!porFunc[chave])porFunc[chave]=[];
       porFunc[chave].push(r);
-      // usa o nome mais completo disponível
-      if(r.nome&&(!nomeFunc[chave]||r.nome.length>nomeFunc[chave].length))
+      if(r.nome&&r.nome!==r.email&&(!nomeFunc[chave]||r.nome.length<nomeFunc[chave].length))
         nomeFunc[chave]=r.nome;
     });
     Object.keys(porFunc).forEach(k=>porFunc[k].sort((a,b)=>b.id.localeCompare(a.id)));
@@ -2353,7 +2371,7 @@ window.salvarPontoAdmin=async function(){
       else if(d.id.startsWith(idBase+'_p')){const n=parseInt(d.id.replace(idBase+'_p',''));if(!isNaN(n))maxP=Math.max(maxP,n);}
     });
     const novoId=maxP===0?idBase:idBase+'_p'+(maxP+1);
-    const nomeFunc=document.getElementById('mpaFunc').options[document.getElementById('mpaFunc').selectedIndex].text;
+    const nomeFunc=document.getElementById('mpaFunc').options[document.getElementById('mpaFunc').selectedIndex].text.split(' (')[0];
     await setDoc(doc(db,'ponto',novoId),{entrada,saida:saida||'',nome:nomeFunc,email:emailFunc,data:dataFmt});
     showToast('Ponto adicionado!');
     document.getElementById('modalPontoAdmin').remove();
