@@ -2283,17 +2283,23 @@ window.propagarParcelas=async function(catIdx,itemIdx,novaParcelaStr){
 };
 
 
-window.abrirModalPontoAdmin=function(){
+window.abrirModalPontoAdmin=async function(){
   const ex=document.getElementById('modalPontoAdmin');if(ex)ex.remove();
   const div=document.createElement('div');div.id='modalPontoAdmin';
   div.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)';
   div.onclick=e=>{if(e.target===div)div.remove();};
-  // funcionários disponíveis
-  const funcs=[
-    {email:'lfuganti@gmail.com',nome:'Lorena'},
-    {email:'pereira.joao47@hotmail.com',nome:'João'}
-  ];
-  const opsFuncs=funcs.map(f=>'<option value="'+f.email+'">'+f.nome+'</option>').join('');
+  // busca funcionários do Firestore
+  let funcs=[];
+  try{
+    const snaps=await getDocs(collection(db,'usuarios'));
+    snaps.forEach(d=>{
+      const u={id:d.id,...d.data()};
+      if(u.perfil==='funcionario'||u.perfil==='Funcionário'||u.perfil==='funcionário')
+        funcs.push({email:u.id,nome:u.nome||u.id});
+    });
+  }catch(e){}
+  if(!funcs.length)funcs=[{email:'lfuganti@gmail.com',nome:'Lorena'},{email:'pereira.joao47@hotmail.com',nome:'João'}];
+  const opsFuncs=funcs.map(f=>'<option value="'+f.email+'">'+f.nome+' ('+f.email+')'+'</option>').join('');
   div.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:340px;max-width:95vw">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <span style="font-size:15px;font-weight:600">Adicionar Ponto</span>
