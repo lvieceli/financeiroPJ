@@ -918,6 +918,20 @@ async function renderCaixaDinheiro(){
       });
       pendentes.sort((a,b)=>b.id.localeCompare(a.id));
       aprovados.sort((a,b)=>b.id.localeCompare(a.id));
+      // filtra aprovados pelo mês selecionado
+      const _mesesCx=new Set(aprovados.map(r=>{const p=r.id.split('_');return p.length>=3?p[1]+'_'+p[2]:''}));
+      const _mesesCxOrd=[..._mesesCx].filter(Boolean).sort();
+      if(!window._cxMesSel||!_mesesCx.has(window._cxMesSel)){
+        // default: mês atual
+        const _hoje=new Date();
+        const _mm=String(_hoje.getMonth()+1).padStart(2,'0');
+        const _yy=String(_hoje.getFullYear());
+        window._cxMesSel=_mesesCx.has(_mm+'_'+_yy)?_mm+'_'+_yy:(_mesesCxOrd[_mesesCxOrd.length-1]||'');
+      }
+      const _cxMes=window._cxMesSel;
+      const aprovadosFiltrados=_cxMes?aprovados.filter(r=>{const p=r.id.split('_');return p.length>=3&&p[1]+'_'+p[2]===_cxMes;}):aprovados;
+      const _nomeMesesCx=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      const _opsCx=_mesesCxOrd.map(m=>{const[mm,yy]=m.split('_');return '<option value="'+m+'"'+( m===_cxMes?' selected':'')+'>'+((_nomeMesesCx[parseInt(mm)-1])||mm)+' '+yy+'</option>';}).join('');
     }catch(e){console.error('Erro caixa dinheiro:',e);}
     el.innerHTML=`
       <div class="page-header"><div><div class="page-title">Caixa Dinheiro</div><div class="page-sub">Registros dos funcionários</div></div></div>
@@ -940,10 +954,12 @@ async function renderCaixaDinheiro(){
         </table></div>
       </div>`:`<div class="panel"><div class="pb" style="text-align:center;color:var(--text3);padding:24px;font-size:13px"><i class="ti ti-circle-check" style="font-size:24px;color:var(--green);display:block;margin-bottom:8px"></i>Nenhum registro pendente.</div></div>`}
       <div class="panel">
-        <div class="ph"><span class="ph-title"><i class="ti ti-history"></i>Histórico Aprovados</span></div>
+        <div class="ph"><span class="ph-title"><i class="ti ti-history"></i>Histórico Aprovados</span>
+          <select style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px" onchange="window._cxMesSel=this.value;window.renderCaixaDinheiro()">${_opsCx}</select>
+        </div>
         <div style="overflow-x:auto"><table class="dt" style="width:100%">
           <thead><tr><th>Data</th><th>Funcionário</th><th>Abertura</th><th>Retirada</th><th>Fechamento</th><th>Resultado</th><th></th></tr></thead>
-          <tbody>${aprovados.length?aprovados.slice(0,20).map(r=>`<tr>
+          <tbody>${aprovadosFiltrados.length?aprovadosFiltrados.map(r=>`<tr>
             <td>${r.id}</td><td>${r.registradoPor||'—'}</td>
             <td>${brl(r.abert)}</td><td>${r.retir?brl(r.retir):'—'}</td>
             <td>${brl(r.fech)}</td>
@@ -1146,6 +1162,7 @@ window.renderPonto=async function renderPonto(){
         <div style="display:flex;align-items:center;gap:10px">
           <select style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:12px" onchange="window._pontoMesSel=this.value;window.renderPonto()">${opsMeses}</select>
           <span style="font-size:12px;color:var(--text3)">Total: <strong style="color:var(--blue);font-family:var(--mono)">${fmtMins(totalGeral)}</strong></span>
+          <button class="btn btn-primary" onclick="window.abrirModalPontoAdmin()" style="font-size:12px"><i class="ti ti-plus"></i>Adicionar</button>
           <button class="btn" onclick="window.renderPonto()" style="font-size:12px"><i class="ti ti-refresh"></i>Atualizar</button>
         </div>
       </div>
@@ -1182,49 +1199,94 @@ window.renderPonto=async function renderPonto(){
         </div>`;
       }).join(''):`<div class="panel"><div class="pb" style="text-align:center;color:var(--text3);padding:32px">Nenhum registro ainda.</div></div>`}`;
   } else {
-    const id=currentUser.email.replace(/[\.@]/g,'_')+'_'+hoje;
-    let ponto={entrada:'',saida:''};
-    try{const snap=await getDoc(doc(db,'ponto',id));if(snap.exists())ponto=snap.data();}catch(e){}
+    // busca todos os registros de ponto do dia (podem ser múltiplos períodos)
+    const idBase=currentUser.email.replace(/[\.@]/g,'_')+'_'+hoje;
+    let periodos=[];
+    try{
+      const snaps=await getDocs(collection(db,'ponto'));
+      snaps.forEach(d=>{if(d.id===idBase||d.id.startsWith(idBase+'_p'))periodos.push({id:d.id,...d.data()});});
+      periodos.sort((a,b)=>a.id.localeCompare(b.id));
+    }catch(e){}
+
+    // calcula total do dia
+    const calcMinsP=r=>{if(!r.entrada||!r.saida)return 0;const[eh,em]=r.entrada.split(':').map(Number);const[sh,sm]=r.saida.split(':').map(Number);const m=(sh*60+sm)-(eh*60+em);return m>0?m:0;};
+    const totalMins=periodos.reduce((s,r)=>s+calcMinsP(r),0);
+    const fmtTotalP=totalMins>0?Math.floor(totalMins/60)+'h'+(totalMins%60).toString().padStart(2,'0')+'m':'—';
+
+    // verifica se último período está aberto (tem entrada mas não saída)
+    const ultimoPeriodo=periodos[periodos.length-1];
+    const periodoAberto=ultimoPeriodo&&ultimoPeriodo.entrada&&!ultimoPeriodo.saida;
+
+    const periodosHTML=periodos.map((p,i)=>{
+      const mins=calcMinsP(p);
+      const dur=mins>0?Math.floor(mins/60)+'h'+(mins%60).toString().padStart(2,'0')+'m':'em andamento';
+      return '<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--bg3);border-radius:8px;margin-bottom:6px">'
+        +'<span style="font-size:11px;color:var(--text3);min-width:60px">Período '+(i+1)+'</span>'
+        +'<span style="font-family:var(--mono);color:var(--green);font-size:14px;font-weight:600">'+( p.entrada||'--:--')+'</span>'
+        +'<span style="color:var(--text3)">→</span>'
+        +'<span style="font-family:var(--mono);color:'+(p.saida?'var(--red)':'var(--text3)')+';font-size:14px;font-weight:600">'+(p.saida||'--:--')+'</span>'
+        +'<span style="flex:1;text-align:right;font-size:12px;color:var(--blue);font-family:var(--mono)">'+dur+'</span>'
+        +'</div>';
+    }).join('');
+
     el.innerHTML=`
       <div class="page-header"><div><div class="page-title">Meu Ponto</div><div class="page-sub">${hoje}</div></div></div>
-      <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-clock"></i>Registro de Hoje</span></div>
-      <div class="pb">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-          <div style="text-align:center">
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:500;text-transform:uppercase;letter-spacing:.6px">Entrada</div>
-            <div style="font-size:36px;font-weight:700;font-family:var(--mono);color:${ponto.entrada?'var(--green)':'var(--text3)'};margin-bottom:12px">${ponto.entrada||'--:--'}</div>
-            ${!ponto.entrada?`<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="window.registrarPonto('entrada')"><i class="ti ti-login"></i>Registrar Entrada</button>`:`<span class="badge bg-g" style="font-size:12px;padding:6px 14px">✓ Registrado</span>`}
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:500;text-transform:uppercase;letter-spacing:.6px">Saída</div>
-            <div style="font-size:36px;font-weight:700;font-family:var(--mono);color:${ponto.saida?'var(--red)':'var(--text3)'};margin-bottom:12px">${ponto.saida||'--:--'}</div>
-            ${ponto.entrada&&!ponto.saida?`<button class="btn" style="width:100%;justify-content:center;background:var(--red-bg);border-color:var(--red);color:var(--red)" onclick="window.registrarPonto('saida')"><i class="ti ti-logout"></i>Registrar Saída</button>`:ponto.saida?`<span class="badge bg-r" style="font-size:12px;padding:6px 14px">✓ Registrado</span>`:`<button class="btn" disabled style="width:100%;justify-content:center;opacity:.4">Registrar Saída</button>`}
+      <div class="panel">
+        <div class="ph"><span class="ph-title"><i class="ti ti-clock"></i>Registro de Hoje</span>
+          ${totalMins>0?'<span style="font-family:var(--mono);font-size:14px;font-weight:600;color:var(--blue)">Total: '+fmtTotalP+'</span>':''}
+        </div>
+        <div class="pb">
+          ${periodosHTML||'<div style="color:var(--text3);font-size:13px;padding:8px 0">Nenhum período registrado hoje.</div>'}
+          <div style="display:flex;gap:10px;margin-top:14px">
+            ${!periodoAberto
+              ? `<button class="btn btn-primary" style="flex:1;justify-content:center" onclick="window.registrarPonto('entrada')"><i class="ti ti-login"></i>${periodos.length>0?'Novo Período':'Registrar Entrada'}</button>`
+              : `<button class="btn" style="flex:1;justify-content:center;background:var(--red);color:#fff" onclick="window.registrarPonto('saida')"><i class="ti ti-logout"></i>Registrar Saída</button>`
+            }
           </div>
         </div>
-        ${ponto.entrada&&ponto.saida?`<div style="background:var(--bg3);border-radius:10px;padding:14px;text-align:center"><span style="font-size:13px;color:var(--text3)">Total trabalhado: </span><span style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--blue)">${(()=>{const[eh,em]=ponto.entrada.split(':').map(Number);const[sh,sm]=ponto.saida.split(':').map(Number);const mins=(sh*60+sm)-(eh*60+em);return mins>0?Math.floor(mins/60)+'h'+(mins%60).toString().padStart(2,'0')+'m':'—';})()}</span></div>`:''}
-      </div></div>`;
+      </div>`;
   }
 }
 
 window.registrarPonto=async function(tipo){
-  const hoje=fmtData();const hora=fmtHora();const id=currentUser.email.replace(/[\.@]/g,'_')+'_'+hoje;
+  const hoje=fmtData();const hora=fmtHora();
+  const emailId=currentUser.email.replace(/[\.@]/g,'_');
+  const idBase=emailId+'_'+hoje;
   try{
-    const snap=await getDoc(doc(db,'ponto',id));
-    const atual=snap.exists()?snap.data():{};
-    await setDoc(doc(db,'ponto',id),{...atual,[tipo]:hora,nome:currentNome,email:currentUser.email,data:hoje});
-    // marca tarefa fixa de atalho correspondente
-    const atalhoKey=tipo==='entrada'?'pontoEntrada':'pontoSaida';
-    const tarefa=(data.tarefasFixas||[]).find(t=>t.atalho===atalhoKey);
-    if(tarefa&&!tarefaMarcadaHoje(tarefa)){
-      if(!tarefa.marcacoesHoje)tarefa.marcacoesHoje={};
-      tarefa.marcacoesHoje[hoje]={por:currentNome,hora};
-      await saveNow();
+    if(tipo==='entrada'){
+      // busca todos os períodos do dia e cria novo
+      const snaps=await getDocs(collection(db,'ponto'));
+      let maxPeriodo=0;
+      snaps.forEach(d=>{
+        if(d.id===idBase)maxPeriodo=Math.max(maxPeriodo,1);
+        else if(d.id.startsWith(idBase+'_p')){
+          const n=parseInt(d.id.replace(idBase+'_p',''));
+          if(!isNaN(n))maxPeriodo=Math.max(maxPeriodo,n);
+        }
+      });
+      const novoId=maxPeriodo===0?idBase:idBase+'_p'+(maxPeriodo+1);
+      await setDoc(doc(db,'ponto',novoId),{entrada:hora,saida:'',nome:currentNome,email:currentUser.email,data:hoje});
+      // marca tarefa de atalho somente no primeiro período
+      if(maxPeriodo===0){
+        const tarefa=(data.tarefasFixas||[]).find(t=>t.atalho==='pontoEntrada');
+        if(tarefa&&!tarefaMarcadaHoje(tarefa)){if(!tarefa.marcacoesHoje)tarefa.marcacoesHoje={};tarefa.marcacoesHoje[hoje]={por:currentNome,hora};await saveNow();}
+      }
+    } else {
+      // saída: fecha o último período aberto
+      const snaps=await getDocs(collection(db,'ponto'));
+      const periodos=[];
+      snaps.forEach(d=>{if(d.id===idBase||d.id.startsWith(idBase+'_p'))periodos.push({id:d.id,...d.data()});});
+      periodos.sort((a,b)=>a.id.localeCompare(b.id));
+      const aberto=periodos.filter(p=>p.entrada&&!p.saida).pop();
+      if(!aberto){showToast('Nenhum período aberto.','var(--red)');return;}
+      await setDoc(doc(db,'ponto',aberto.id),{...aberto,saida:hora});
+      const tarefa=(data.tarefasFixas||[]).find(t=>t.atalho==='pontoSaida');
+      if(tarefa&&!tarefaMarcadaHoje(tarefa)){if(!tarefa.marcacoesHoje)tarefa.marcacoesHoje={};tarefa.marcacoesHoje[hoje]={por:currentNome,hora};await saveNow();}
     }
     showToast(tipo==='entrada'?'Entrada registrada!':'Saída registrada!');
-    // redireciona para home do funcionário
-    if(!isAdmin()){showPage('funcHome');}
+    if(!isAdmin()){showPage('ponto');}
     else{window.renderPonto();}
-  }catch(e){showToast('Erro ao registrar ponto.','var(--red)');}
+  }catch(e){showToast('Erro ao registrar ponto.','var(--red)');console.error(e);}
 }
 
 // ====== CHAT ======
@@ -2219,6 +2281,71 @@ window.propagarParcelas=async function(catIdx,itemIdx,novaParcelaStr){
     if(total2>0)showToast('Parcelas atualizadas em '+total2+' mes'+(total2>1?'es':'')+'!','var(--blue)');
   }catch(e){console.error('Erro ao propagar parcelas:',e);}
 };
+
+
+window.abrirModalPontoAdmin=function(){
+  const ex=document.getElementById('modalPontoAdmin');if(ex)ex.remove();
+  const div=document.createElement('div');div.id='modalPontoAdmin';
+  div.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)';
+  div.onclick=e=>{if(e.target===div)div.remove();};
+  // funcionários disponíveis
+  const funcs=[
+    {email:'lfuganti@gmail.com',nome:'Lorena'},
+    {email:'pereira.joao47@hotmail.com',nome:'João'}
+  ];
+  const opsFuncs=funcs.map(f=>'<option value="'+f.email+'">'+f.nome+'</option>').join('');
+  div.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:340px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <span style="font-size:15px;font-weight:600">Adicionar Ponto</span>
+      <span onclick="document.getElementById('modalPontoAdmin').remove()" style="cursor:pointer;color:var(--text3);font-size:20px">&times;</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Funcionário</label>
+        <select id="mpaFunc" class="inp" style="width:100%">${opsFuncs}</select></div>
+      <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Data</label>
+        <div style="display:flex;gap:8px"><input class="inp" id="mpaData" placeholder="dd/mm/aaaa" style="flex:1" readonly>
+        <button class="btn" style="padding:8px 12px" onclick="window.abrirCalendario('mpaData',null,true)"><i class="ti ti-calendar"></i></button></div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Entrada</label>
+          <input class="inp" id="mpaEntrada" placeholder="HH:MM" style="width:100%;text-align:center" maxlength="5" oninput="this.value=this.value.replace(/[^0-9:]/g,'')"></div>
+        <div><label style="font-size:11px;color:var(--text3);font-weight:500;display:block;margin-bottom:4px;text-transform:uppercase">Saída</label>
+          <input class="inp" id="mpaSaida" placeholder="HH:MM" style="width:100%;text-align:center" maxlength="5" oninput="this.value=this.value.replace(/[^0-9:]/g,'')"></div>
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="window.salvarPontoAdmin()"><i class="ti ti-check"></i>Salvar Registro</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+window.salvarPontoAdmin=async function(){
+  const emailFunc=document.getElementById('mpaFunc').value;
+  const dataVal=document.getElementById('mpaData').value; // dd/mm/aaaa
+  const entrada=document.getElementById('mpaEntrada').value.trim();
+  const saida=document.getElementById('mpaSaida').value.trim();
+  if(!dataVal||!entrada){showToast('Data e Entrada são obrigatórios.','var(--red)');return;}
+  // convert dd/mm/aaaa to dd/mm/aaaa (already fmtData format)
+  const parts=dataVal.split('/');
+  if(parts.length<3){showToast('Data inválida.','var(--red)');return;}
+  const dataFmt=parts[0]+'/'+parts[1]+'/'+parts[2]; // dd/mm/aaaa
+  const emailId=emailFunc.replace(/[\.@]/g,'_');
+  const dataId=parts[0]+'_'+parts[1]+'_'+parts[2]; // dd_mm_aaaa
+  const idBase=emailId+'_'+dataId;
+  try{
+    // verifica períodos existentes para não sobrescrever
+    const snaps=await getDocs(collection(db,'ponto'));
+    let maxP=0;
+    snaps.forEach(d=>{
+      if(d.id===idBase)maxP=Math.max(maxP,1);
+      else if(d.id.startsWith(idBase+'_p')){const n=parseInt(d.id.replace(idBase+'_p',''));if(!isNaN(n))maxP=Math.max(maxP,n);}
+    });
+    const novoId=maxP===0?idBase:idBase+'_p'+(maxP+1);
+    const nomeFunc=document.getElementById('mpaFunc').options[document.getElementById('mpaFunc').selectedIndex].text;
+    await setDoc(doc(db,'ponto',novoId),{entrada,saida:saida||'',nome:nomeFunc,email:emailFunc,data:dataFmt});
+    showToast('Ponto adicionado!');
+    document.getElementById('modalPontoAdmin').remove();
+    window.renderPonto();
+  }catch(e){showToast('Erro ao salvar.','var(--red)');console.error(e);}
+}
 
 window.changeMonth=function(src){
   const mob=document.getElementById('monthSelect');
