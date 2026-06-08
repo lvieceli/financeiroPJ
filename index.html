@@ -1136,14 +1136,18 @@ window.renderPonto=async function renderPonto(){
       return p.length>=3&&p[1]+'_'+p[2]===mesSel;
     }):registros;
 
-    // agrupa por funcionário
+    // agrupa por email do funcionário (chave única)
     const porFunc={};
+    const nomeFunc={};
     regsFiltrados.forEach(r=>{
-      const nome=r.nome||r.email||r.id;
-      if(!porFunc[nome])porFunc[nome]=[];
-      porFunc[nome].push(r);
+      const chave=r.email||r.id;
+      if(!porFunc[chave])porFunc[chave]=[];
+      porFunc[chave].push(r);
+      // usa o nome mais completo disponível
+      if(r.nome&&(!nomeFunc[chave]||r.nome.length>nomeFunc[chave].length))
+        nomeFunc[chave]=r.nome;
     });
-    Object.keys(porFunc).forEach(n=>porFunc[n].sort((a,b)=>b.id.localeCompare(a.id)));
+    Object.keys(porFunc).forEach(k=>porFunc[k].sort((a,b)=>b.id.localeCompare(a.id)));
 
     const totalGeral=regsFiltrados.reduce((s,r)=>s+calcMins(r),0);
     const mesesNmP={Jan:'Jan',Fev:'Fev',Mar:'Mar',Abr:'Abr',Mai:'Mai',Jun:'Jun',Jul:'Jul',Ago:'Ago',Set:'Set',Out:'Out',Nov:'Nov',Dez:'Dez'};
@@ -1170,9 +1174,10 @@ window.renderPonto=async function renderPonto(){
         const regs=porFunc[nome];
         const totalMins=regs.reduce((s,r)=>s+calcMins(r),0);
         const diasTrabalhados=regs.filter(r=>r.entrada).length;
+        const nomeExib=nomeFunc[nome]||nome;
         return`<div class="panel">
           <div class="ph">
-            <span class="ph-title"><i class="ti ti-user" style="color:var(--blue)"></i>${nome}</span>
+            <span class="ph-title"><i class="ti ti-user" style="color:var(--blue)"></i>${nomeExib}</span>
             <span style="display:flex;align-items:center;gap:12px">
               <span style="font-size:11px;color:var(--text3)">${diasTrabalhados} dia${diasTrabalhados!==1?'s':''}</span>
               <span style="font-family:var(--mono);font-size:14px;font-weight:600;color:var(--blue)">${fmtMins(totalMins)}</span>
