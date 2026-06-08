@@ -1165,7 +1165,15 @@ window.renderPonto=async function renderPonto(){
       if(r.nome&&r.nome!==r.email&&(!nomeFunc[chave]||r.nome.length<nomeFunc[chave].length))
         nomeFunc[chave]=r.nome;
     });
-    Object.keys(porFunc).forEach(k=>porFunc[k].sort((a,b)=>b.id.localeCompare(a.id)));
+    // normaliza data para ordenação: extrai DD MM YYYY de qualquer formato
+    const _pontoDataSort=r=>{
+      const d=r.data||'';
+      const sep=d.includes('/')?'/':d.includes('-')?'-':'_';
+      const p=d.split(sep);
+      if(p.length>=3)return p[2]+p[1].padStart(2,'0')+p[0].padStart(2,'0'); // YYYYMMDD
+      return r.id; // fallback
+    };
+    Object.keys(porFunc).forEach(k=>porFunc[k].sort((a,b)=>_pontoDataSort(b).localeCompare(_pontoDataSort(a))));
 
     const totalGeral=regsFiltrados.reduce((s,r)=>s+calcMins(r),0);
     const mesesNmP={Jan:'Jan',Fev:'Fev',Mar:'Mar',Abr:'Abr',Mai:'Mai',Jun:'Jun',Jul:'Jul',Ago:'Ago',Set:'Set',Out:'Out',Nov:'Nov',Dez:'Dez'};
@@ -1206,7 +1214,7 @@ window.renderPonto=async function renderPonto(){
             <tbody>${regs.map(r=>{
               const mins=calcMins(r);
               return`<tr>
-                <td style="font-weight:500">${r.data||'—'}</td>
+                <td style="font-weight:500">${(()=>{const d=r.data||'';const sep=d.includes('/')?'/':d.includes('-')?'-':'_';const p=d.split(sep);return p.length>=3?p[0].padStart(2,'0')+'/'+p[1].padStart(2,'0')+'/'+p[2]:d||'—';})()}</td>
                 <td style="color:var(--green)">${r.entrada||'—'} <button class="btn" style="padding:2px 6px;font-size:10px;margin-left:4px" onclick="window.editarPonto('${r.id}','entrada','${r.entrada||''}')"><i class="ti ti-edit" style="font-size:10px"></i></button></td>
                 <td style="color:var(--red)">${r.saida||'—'} <button class="btn" style="padding:2px 6px;font-size:10px;margin-left:4px" onclick="window.editarPonto('${r.id}','saida','${r.saida||''}')"><i class="ti ti-edit" style="font-size:10px"></i></button></td>
                 <td style="font-family:var(--mono);font-weight:500;color:${mins>0?'var(--blue)':'var(--text3)'}">${fmtMins(mins)}</td>
