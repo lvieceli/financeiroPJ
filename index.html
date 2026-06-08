@@ -908,7 +908,7 @@ async function renderCaixaDinheiro(){
   const el=document.getElementById('page-caixaDinheiro');if(!el)return;
   const hoje=fmtDataId();
   if(isAdmin()){
-    let pendentes=[],aprovados=[];
+    let pendentes=[],aprovados=[],_opsCx='',_cxMes='',aprovadosFiltrados=[];
     try{
       const snaps=await getDocs(collection(db,'caixaDinheiro'));
       snaps.forEach(d=>{
@@ -928,10 +928,10 @@ async function renderCaixaDinheiro(){
         const _yy=String(_hoje.getFullYear());
         window._cxMesSel=_mesesCx.has(_mm+'_'+_yy)?_mm+'_'+_yy:(_mesesCxOrd[_mesesCxOrd.length-1]||'');
       }
-      const _cxMes=window._cxMesSel;
-      const aprovadosFiltrados=_cxMes?aprovados.filter(r=>{const p=r.id.split('_');return p.length>=3&&p[1]+'_'+p[2]===_cxMes;}):aprovados;
+      _cxMes=window._cxMesSel;
+      aprovadosFiltrados=_cxMes?aprovados.filter(r=>{const p=r.id.split('_');return p.length>=3&&p[1]+'_'+p[2]===_cxMes;}):aprovados;
       const _nomeMesesCx=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-      const _opsCx=_mesesCxOrd.map(m=>{const[mm,yy]=m.split('_');return '<option value="'+m+'"'+( m===_cxMes?' selected':'')+'>'+((_nomeMesesCx[parseInt(mm)-1])||mm)+' '+yy+'</option>';}).join('');
+      _opsCx=_mesesCxOrd.map(m=>{const[mm,yy]=m.split('_');return '<option value="'+m+'"'+( m===_cxMes?' selected':'')+'>'+((_nomeMesesCx[parseInt(mm)-1])||mm)+' '+yy+'</option>';}).join('');
     }catch(e){console.error('Erro caixa dinheiro:',e);}
     el.innerHTML=`
       <div class="page-header"><div><div class="page-title">Caixa Dinheiro</div><div class="page-sub">Registros dos funcionários</div></div></div>
@@ -2325,10 +2325,13 @@ window.salvarPontoAdmin=async function(){
   if(!dataVal||!entrada){showToast('Data e Entrada são obrigatórios.','var(--red)');return;}
   // convert dd/mm/aaaa to dd/mm/aaaa (already fmtData format)
   const parts=dataVal.split('/');
-  if(parts.length<3){showToast('Data inválida.','var(--red)');return;}
-  const dataFmt=parts[0]+'/'+parts[1]+'/'+parts[2]; // dd/mm/aaaa
+  // calendário retorna dd/mm; completar com ano atual se necessário
+  const anoAtual=new Date().getFullYear();
+  const dd=parts[0],mm=parts[1],aaaa=parts.length>=3?parts[2]:String(anoAtual);
+  if(!dd||!mm){showToast('Data inválida.','var(--red)');return;}
+  const dataFmt=dd+'/'+mm+'/'+aaaa;
   const emailId=emailFunc.replace(/[\.@]/g,'_');
-  const dataId=parts[0]+'_'+parts[1]+'_'+parts[2]; // dd_mm_aaaa
+  const dataId=dd+'_'+mm+'_'+aaaa; // dd_mm_aaaa
   const idBase=emailId+'_'+dataId;
   try{
     // verifica períodos existentes para não sobrescrever
