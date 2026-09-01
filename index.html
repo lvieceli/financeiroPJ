@@ -1,3 +1,16 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1068,22 +1081,21 @@ window.aprovarCaixa=async function(dataId){
       const dia=parseInt(partes[0])-1;
       const mesIdx=parseInt(partes[1])-1;
       const anoReg=partes[2];
-      if(dia>=0&&dia<31){
-        const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-        const mesReg=ordemM[mesIdx];
+      const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const mesReg=ordemM[mesIdx];
+      if(dia>=0&&dia<31&&mesReg){
+        // busca o doc do mês correto do registro (pode ser mês diferente do atual)
         const docKeyNovo=mesReg+'_'+anoReg;
         const docKeyLegado=mesReg;
-        // busca doc do mês do registro (pode ser mês passado)
         let snapReg=await getDoc(doc(db,'meses',docKeyNovo));
         if(!snapReg.exists())snapReg=await getDoc(doc(db,'meses',docKeyLegado));
         let dadosReg=snapReg.exists()?applySnap(snapReg.data()):defData();
         dadosReg.caixa[dia].abert=abert;
         dadosReg.caixa[dia].fech=fech;
         dadosReg.caixa[dia].retir=retir;
-        // salva no doc correto
-        const saveKey=snapReg.exists()?snapReg.ref.id:docKeyNovo;
+        const saveKey=snapReg.exists()&&snapReg.ref?snapReg.ref.id:docKeyNovo;
         await setDoc(doc(db,'meses',saveKey),dadosReg);
-        // se o mês do registro é o mês atual, atualiza data local
+        // se o mês do registro é o mês atual, atualiza data local também
         if(mesReg===cm&&anoReg===ano){
           data.caixa[dia].abert=abert;
           data.caixa[dia].fech=fech;
@@ -1091,7 +1103,7 @@ window.aprovarCaixa=async function(dataId){
         }
       }
     }
-    showToast('Aprovado e lançado no Caixa Diário de '+dataId.split('_').slice(0,3).join('/')+'!');
+    showToast('Aprovado e lançado no Caixa Diário!');
     renderCaixaDinheiro();renderDashboard();
   }catch(e){console.error(e);showToast('Erro ao aprovar.','var(--red)');}
 }
@@ -1878,6 +1890,7 @@ window.caixaInput=function(i,field,val){
 }
 window.caixaAbertManual=function(i,val){data.caixa[i].abert=parseFloat(val)||0;data.caixa[i].abertManual=i>0&&val!=='';window.caixaInput(i,'abert',val);}
 window.renderCaixa=function(){
+  const _adminCaixa=isAdmin();
   document.getElementById('caixaBody').innerHTML=data.caixa.map((d,i)=>`<tr>
     <td style="text-align:center">${d.dia}</td>
     <td><input class="cg-inp" id="abert${i}" value="${d.abert||''}" placeholder="0,00" style="${d.abertManual&&i>0?'color:var(--amber)':''}" oninput="window.caixaAbertManual(${i},this.value)" onblur="if(!this.value&&${i}>0){data.caixa[${i}].abertManual=false;this.style.color='';}"></td>
@@ -1888,6 +1901,7 @@ window.renderCaixa=function(){
     <td><input class="cg-inp" value="${d.pix||''}" placeholder="0,00" oninput="window.caixaInput(${i},'pix',this.value)"></td>
     <td><input class="cg-inp" value="${d.outros||''}" placeholder="0,00" oninput="window.caixaInput(${i},'outros',this.value)"></td>
     <td><span class="cg-ro" id="total${i}" style="font-weight:600;color:${getTotalDia(d)>0?'var(--green)':getTotalDia(d)<0?'var(--red)':''}">${getTotalDia(d)!==0?brl(getTotalDia(d)):'—'}</span></td>
+    ${_adminCaixa?`<td style="text-align:center"><button class="btn" style="padding:2px 7px;font-size:11px" onclick="window.abrirEditarDia(${i})" title="Editar dia ${d.dia}"><i class="ti ti-edit" style="font-size:12px"></i></button></td>`:''}
   </tr>`).join('');updCaixaFoot();
 }
 function updCaixaFoot(){
@@ -2079,6 +2093,15 @@ window.showPage=function(p){
   else if(p==='perfis')renderPerfis();
   else if(p==='funcHome')renderFuncionarioHome();
   else if(p==='historico')window.renderHistorico();
+  if(p==='caixa'){
+    // sincroniza seletor do caixa com mês atual
+    const _cm=document.getElementById('caixaMesSelect');
+    const _ca=document.getElementById('caixaAnoSelect');
+    if(_cm)_cm.value=cm;if(_ca)_ca.value=ano;
+    const _mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
+    const _sub=document.getElementById('caixaSub');
+    if(_sub)_sub.textContent=(_mesesNm[cm]||cm)+' '+ano;
+  }
 }
 
 
@@ -2403,6 +2426,81 @@ window.salvarPontoAdmin=async function(){
 }
 
 
+// ====== CAIXA - SELETOR DE MÊS ======
+window.caixaMudarMes=async function(){
+  const mes=document.getElementById('caixaMesSelect')?.value;
+  const anoSel=document.getElementById('caixaAnoSelect')?.value;
+  if(!mes||!anoSel)return;
+  const mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
+  const sub=document.getElementById('caixaSub');
+  if(sub)sub.textContent=mesesNm[mes]+' '+anoSel;
+  // atualiza variáveis globais de mês
+  const oldCm=cm,oldAno=ano;
+  cm=mes;ano=anoSel;
+  await loadMonth(mes);
+  window.renderCaixa();
+  // sincroniza seletor do dashboard
+  const des=document.getElementById('monthSelectDesktop');
+  const yr=document.getElementById('yearSelectDesktop');
+  if(des)des.value=mes;if(yr)yr.value=anoSel;
+  const dashSub=document.getElementById('dashSub');
+  if(dashSub)dashSub.textContent=(mesesNm[mes]||mes)+' '+anoSel;
+}
+
+// ====== CAIXA - EDITAR DIA (ADMIN) ======
+window.abrirEditarDia=function(idx){
+  const d=data.caixa[idx];if(!d)return;
+  const ex=document.getElementById('modalEditarDia');if(ex)ex.remove();
+  const div=document.createElement('div');div.id='modalEditarDia';
+  div.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)';
+  div.onclick=e=>{if(e.target===div)div.remove();};
+  div.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:380px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <span style="font-size:15px;font-weight:600"><i class="ti ti-calendar-event"></i> Editar Dia ${d.dia}</span>
+      <span onclick="document.getElementById('modalEditarDia').remove()" style="cursor:pointer;color:var(--text3);font-size:20px">&times;</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label style="font-size:10px;color:var(--text3);font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase">Abertura R$</label>
+        <input class="inp" id="edAbert" type="number" value="${d.abert||''}" placeholder="0,00" style="width:100%"></div>
+      <div><label style="font-size:10px;color:var(--text3);font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase">Fechamento R$</label>
+        <input class="inp" id="edFech" type="number" value="${d.fech||''}" placeholder="0,00" style="width:100%"></div>
+      <div><label style="font-size:10px;color:var(--amber);font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase">Retirada R$</label>
+        <input class="inp" id="edRetir" type="number" value="${d.retir||''}" placeholder="0,00" style="width:100%;color:var(--amber)"></div>
+      <div><label style="font-size:10px;color:var(--green);font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase">Cartão R$</label>
+        <input class="inp" id="edCartao" type="number" value="${d.cartao||''}" placeholder="0,00" style="width:100%"></div>
+      <div><label style="font-size:10px;color:var(--blue);font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase">PIX R$</label>
+        <input class="inp" id="edPix" type="number" value="${d.pix||''}" placeholder="0,00" style="width:100%"></div>
+      <div><label style="font-size:10px;color:var(--text3);font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase">Outros R$</label>
+        <input class="inp" id="edOutros" type="number" value="${d.outros||''}" placeholder="0,00" style="width:100%"></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:16px" onclick="window.salvarEditarDia(${idx})">
+      <i class="ti ti-check"></i>Salvar Alterações
+    </button>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+window.salvarEditarDia=async function(idx){
+  const d=data.caixa[idx];if(!d)return;
+  const parse=id=>parseFloat(document.getElementById(id)?.value)||0;
+  d.abert=parse('edAbert');
+  d.fech=parse('edFech');
+  d.retir=parse('edRetir');
+  d.cartao=parse('edCartao');
+  d.pix=parse('edPix');
+  d.outros=parse('edOutros');
+  // recalcula abertura do dia seguinte automaticamente
+  if(idx+1<data.caixa.length&&!data.caixa[idx+1].abertManual){
+    data.caixa[idx+1].abert=Math.max(0,d.fech-(d.retir||0));
+  }
+  await saveNow();
+  window.renderCaixa();
+  renderDashboard();
+  document.getElementById('modalEditarDia').remove();
+  showToast('Dia '+d.dia+' atualizado!');
+}
+
+
 // Re-lança registro de caixa no mês correto (corrige aprovações no mês errado)
 window.relançarCaixa=async function(dataId){
   const partes=dataId.split('_');
@@ -2412,13 +2510,11 @@ window.relançarCaixa=async function(dataId){
   const anoReg=partes[2];
   const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const mesReg=ordemM[mesIdx];
-  if(!mesReg){showToast('Mês inválido','var(--red)');return;}
+  if(!mesReg||dia<0||dia>30){showToast('Data inválida','var(--red)');return;}
   try{
-    // busca dados do registro aprovado
     const snapCx=await getDoc(doc(db,'caixaDinheiro',dataId));
     if(!snapCx.exists()){showToast('Registro não encontrado','var(--red)');return;}
     const reg=snapCx.data();
-    // busca doc do mês correto
     const docKeyNovo=mesReg+'_'+anoReg;
     const docKeyLegado=mesReg;
     let snapReg=await getDoc(doc(db,'meses',docKeyNovo));
@@ -2427,7 +2523,7 @@ window.relançarCaixa=async function(dataId){
     dadosReg.caixa[dia].abert=reg.abert||0;
     dadosReg.caixa[dia].fech=reg.fech||0;
     dadosReg.caixa[dia].retir=reg.retir||0;
-    const saveKey=snapReg.exists()?snapReg.ref.id:docKeyNovo;
+    const saveKey=snapReg.exists()&&snapReg.ref?snapReg.ref.id:docKeyNovo;
     await setDoc(doc(db,'meses',saveKey),dadosReg);
     showToast('Re-lançado em '+mesReg+'/'+anoReg+' dia '+(dia+1)+'!','var(--blue)');
     renderCaixaDinheiro();
@@ -2723,7 +2819,21 @@ select option{background:#1e2430;color:#f0f4ff;font-size:13px;padding:6px 10px}
       <div id="page-ponto" class="tab-panel"></div>
 
       <div id="page-caixa" class="tab-panel">
-        <div class="page-header"><div><div class="page-title">Caixa Diário</div><div class="page-sub">Abertura e Fechamento + Cartão e PIX</div></div></div>
+        <div class="page-header">
+          <div><div class="page-title">Caixa Diário</div><div class="page-sub" id="caixaSub">Abertura e Fechamento + Cartão e PIX</div></div>
+          <div style="display:flex;align-items:center;gap:8px" id="caixaMesSelector">
+            <i class="ti ti-calendar" style="font-size:13px;color:var(--text3)"></i>
+            <select id="caixaMesSelect" onchange="window.caixaMudarMes('des')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="Jan">Janeiro</option><option value="Fev">Fevereiro</option><option value="Mar">Março</option>
+              <option value="Abr">Abril</option><option value="Mai">Maio</option><option value="Jun">Junho</option>
+              <option value="Jul">Julho</option><option value="Ago">Agosto</option><option value="Set">Setembro</option>
+              <option value="Out">Outubro</option><option value="Nov">Novembro</option><option value="Dez">Dezembro</option>
+            </select>
+            <select id="caixaAnoSelect" onchange="window.caixaMudarMes('des')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="2025">2025</option><option value="2026" selected>2026</option><option value="2027">2027</option>
+            </select>
+          </div>
+        </div>
         <div class="panel"><div class="ph"><span class="ph-title"><i class="ti ti-calendar-stats"></i>Lançamentos</span><span style="font-size:11px;color:var(--text3)">Abertura seguinte = Fech. - Retirada</span></div>
         <div style="overflow-x:auto"><table class="dt" style="width:100%;min-width:600px">
           <thead><tr><th style="text-align:center;width:40px">Dia</th><th>Abert.$</th><th>Fech.$</th><th>Retir.</th><th>Resul.$</th><th>Cartão</th><th>PIX</th><th>Outros</th><th>Total</th></tr></thead>
