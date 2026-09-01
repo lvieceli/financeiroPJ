@@ -966,10 +966,7 @@ async function renderCaixaDinheiro(){
             <td>${brl(r.abert)}</td><td>${r.retir?brl(r.retir):'—'}</td>
             <td>${brl(r.fech)}</td>
             <td style="color:var(--green);font-weight:500">${brl((r.fech||0)+(r.retir||0)-(r.abert||0))}</td>
-            <td style="display:flex;gap:4px">
-              <button class="btn" style="padding:3px 8px;font-size:11px;background:var(--blue);color:#fff" onclick="window.relançarCaixa('${r.id}')" title="Re-lançar no mês correto"><i class="ti ti-refresh"></i></button>
-              <button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="window.excluirCaixaAprovado('${r.id}')"><i class="ti ti-trash"></i></button>
-            </td>
+            <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="window.excluirCaixaAprovado('${r.id}')"><i class="ti ti-trash"></i></button></td>
           </tr>`).join(''):`<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text3)">Nenhum aprovado ainda.</td></tr>`}</tbody>
         </table></div>
       </div>`;
@@ -1085,16 +1082,17 @@ window.aprovarCaixa=async function(dataId){
       const mesReg=ordemM[mesIdx];
       if(dia>=0&&dia<31&&mesReg){
         // busca o doc do mês correto do registro (pode ser mês diferente do atual)
-        const docKeyNovo=mesReg+'_'+anoReg;
-        const docKeyLegado=mesReg;
-        let snapReg=await getDoc(doc(db,'meses',docKeyNovo));
-        if(!snapReg.exists())snapReg=await getDoc(doc(db,'meses',docKeyLegado));
+        let saveKeyAp=mesReg+'_'+anoReg;
+        let snapReg=await getDoc(doc(db,'meses',saveKeyAp));
+        if(!snapReg.exists()){
+          const snapLeg=await getDoc(doc(db,'meses',mesReg));
+          if(snapLeg.exists()){snapReg=snapLeg;saveKeyAp=mesReg;}
+        }
         let dadosReg=snapReg.exists()?applySnap(snapReg.data()):defData();
         dadosReg.caixa[dia].abert=abert;
         dadosReg.caixa[dia].fech=fech;
         dadosReg.caixa[dia].retir=retir;
-        const saveKey=snapReg.exists()&&snapReg.ref?snapReg.ref.id:docKeyNovo;
-        await setDoc(doc(db,'meses',saveKey),dadosReg);
+        await setDoc(doc(db,'meses',saveKeyAp),dadosReg);
         // se o mês do registro é o mês atual, atualiza data local também
         if(mesReg===cm&&anoReg===ano){
           data.caixa[dia].abert=abert;
@@ -1901,7 +1899,10 @@ window.renderCaixa=function(){
     <td><input class="cg-inp" value="${d.pix||''}" placeholder="0,00" oninput="window.caixaInput(${i},'pix',this.value)"></td>
     <td><input class="cg-inp" value="${d.outros||''}" placeholder="0,00" oninput="window.caixaInput(${i},'outros',this.value)"></td>
     <td><span class="cg-ro" id="total${i}" style="font-weight:600;color:${getTotalDia(d)>0?'var(--green)':getTotalDia(d)<0?'var(--red)':''}">${getTotalDia(d)!==0?brl(getTotalDia(d)):'—'}</span></td>
-    ${_adminCaixa?`<td style="text-align:center"><button class="btn" style="padding:2px 7px;font-size:11px" onclick="window.abrirEditarDia(${i})" title="Editar dia ${d.dia}"><i class="ti ti-edit" style="font-size:12px"></i></button></td>`:''}
+    ${_adminCaixa?`<td style="text-align:center;display:flex;gap:3px">
+      <button class="btn" style="padding:2px 7px;font-size:11px" onclick="window.abrirEditarDia(${i})" title="Editar dia ${d.dia}"><i class="ti ti-edit" style="font-size:12px"></i></button>
+      ${getTotalDia(d)!==0?`<button class="btn" style="padding:2px 7px;font-size:11px;background:var(--red);color:#fff" onclick="window.limparDia(${i})" title="Zerar dia ${d.dia}"><i class="ti ti-eraser" style="font-size:12px"></i></button>`:''}
+    </td>`:''}
   </tr>`).join('');updCaixaFoot();
 }
 function updCaixaFoot(){
@@ -2501,33 +2502,19 @@ window.salvarEditarDia=async function(idx){
 }
 
 
-// Re-lança registro de caixa no mês correto (corrige aprovações no mês errado)
-window.relançarCaixa=async function(dataId){
-  const partes=dataId.split('_');
-  if(partes.length!==3){showToast('ID inválido','var(--red)');return;}
-  const dia=parseInt(partes[0])-1;
-  const mesIdx=parseInt(partes[1])-1;
-  const anoReg=partes[2];
-  const ordemM=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const mesReg=ordemM[mesIdx];
-  if(!mesReg||dia<0||dia>30){showToast('Data inválida','var(--red)');return;}
-  try{
-    const snapCx=await getDoc(doc(db,'caixaDinheiro',dataId));
-    if(!snapCx.exists()){showToast('Registro não encontrado','var(--red)');return;}
-    const reg=snapCx.data();
-    const docKeyNovo=mesReg+'_'+anoReg;
-    const docKeyLegado=mesReg;
-    let snapReg=await getDoc(doc(db,'meses',docKeyNovo));
-    if(!snapReg.exists())snapReg=await getDoc(doc(db,'meses',docKeyLegado));
-    let dadosReg=snapReg.exists()?applySnap(snapReg.data()):defData();
-    dadosReg.caixa[dia].abert=reg.abert||0;
-    dadosReg.caixa[dia].fech=reg.fech||0;
-    dadosReg.caixa[dia].retir=reg.retir||0;
-    const saveKey=snapReg.exists()&&snapReg.ref?snapReg.ref.id:docKeyNovo;
-    await setDoc(doc(db,'meses',saveKey),dadosReg);
-    showToast('Re-lançado em '+mesReg+'/'+anoReg+' dia '+(dia+1)+'!','var(--blue)');
-    renderCaixaDinheiro();
-  }catch(e){console.error(e);showToast('Erro ao re-lançar','var(--red)');}
+
+window.limparDia=async function(idx){
+  const d=data.caixa[idx];if(!d)return;
+  if(!confirm('Zerar todos os dados do dia '+d.dia+'?'))return;
+  d.abert=0;d.fech=0;d.retir=0;d.cartao=0;d.pix=0;d.outros=0;d.abertManual=false;
+  // limpa abertura do dia seguinte se foi calculada automaticamente
+  if(idx+1<data.caixa.length&&!data.caixa[idx+1].abertManual){
+    data.caixa[idx+1].abert=0;
+  }
+  await saveNow();
+  window.renderCaixa();
+  renderDashboard();
+  showToast('Dia '+d.dia+' zerado!');
 }
 
 window.changeMonth=function(src){
