@@ -1906,7 +1906,7 @@ window.renderCaixa=function(){
     <td><span class="cg-ro" id="total${i}" style="font-weight:600;color:${getTotalDia(d)>0?'var(--green)':getTotalDia(d)<0?'var(--red)':''}">${getTotalDia(d)!==0?brl(getTotalDia(d)):'—'}</span></td>
     ${_adminCaixa?`<td style="text-align:center;display:flex;gap:3px">
       <button class="btn" style="padding:2px 7px;font-size:11px" onclick="window.abrirEditarDia(${i})" title="Editar dia ${d.dia}"><i class="ti ti-edit" style="font-size:12px"></i></button>
-      ${getTotalDia(d)!==0?`<button class="btn" style="padding:2px 7px;font-size:11px;background:var(--red);color:#fff" onclick="window.limparDia(${i})" title="Zerar dia ${d.dia}"><i class="ti ti-eraser" style="font-size:12px"></i></button>`:''}
+      ${(d.abert||d.fech||d.retir||d.cartao||d.pix||d.outros)?`<button class="btn" style="padding:2px 7px;font-size:11px;background:var(--red);color:#fff" onclick="window.limparDia(${i})" title="Zerar dia ${d.dia}"><i class="ti ti-eraser" style="font-size:12px"></i></button>`:''}
     </td>`:''}
   </tr>`).join('');updCaixaFoot();
 }
