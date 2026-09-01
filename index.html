@@ -1962,14 +1962,28 @@ window.renderFixas=function(){
   }).join('');
 }
 window.marcarFixaRec=function(ci,ii){
-  data.fixas[ci].itens[ii].rec=data.fixas[ci].itens[ii].valor;
-  // auto-preenche data de recebimento
-  if(!data.fixas[ci].itens[ii].dataRec){
-    const _h=new Date();
-    data.fixas[ci].itens[ii].dataRec=_h.getDate().toString().padStart(2,'0')+'/'+((_h.getMonth()+1).toString().padStart(2,'0'));
+  const item=data.fixas[ci].itens[ii];
+  const jaRecebido=item.rec>=(item.valor||0)&&item.valor>0;
+  if(jaRecebido){
+    // desmarcar
+    item.rec=0;
+    item.dataRec='';
+    const dInputFixa=document.getElementById('fDataRec_'+ci+'_'+ii);
+    if(dInputFixa)dInputFixa.value='';
+    const badge=document.querySelector(`[data-fixa="${ci}_${ii}"]`);
+    if(badge){badge.className='badge bg-x';badge.textContent='Pend.';}
+  } else {
+    // marcar como recebido
+    item.rec=item.valor;
+    if(!item.dataRec){
+      const _h=new Date();
+      item.dataRec=_h.getDate().toString().padStart(2,'0')+'/'+((_h.getMonth()+1).toString().padStart(2,'0'));
+    }
+    const dInputFixa=document.getElementById('fDataRec_'+ci+'_'+ii);
+    if(dInputFixa)dInputFixa.value=item.dataRec;
+    const badge=document.querySelector(`[data-fixa="${ci}_${ii}"]`);
+    if(badge){badge.className='badge bg-g';badge.textContent='✓ Rec.';}
   }
-  const badge=document.querySelector(`[data-fixa="${ci}_${ii}"]`);
-  if(badge){badge.className='badge bg-g';badge.textContent='✓ Rec.';}
   saveNow();renderDashboard();
 }
 window.addCatFixa=function(){data.fixas.push({id:Date.now(),cat:'Nova Categoria',itens:[]});saveNow();window.renderFixas();}
