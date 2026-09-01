@@ -1948,6 +1948,11 @@ window.renderFixas=function(){
               data-fixa="${ci}_${ii}" onclick="window.marcarFixaRec(${ci},${ii})">
               ${it.rec>=(it.valor||0)&&it.valor>0?'✓ Rec.':'Pend.'}
             </span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input class="inp inp-sm" style="width:60px;text-align:center;font-size:11px" value="${it.dataRec||''}" placeholder="dd/mm" id="fDataRec_${ci}_${ii}" readonly
+                onchange="window.getData().fixas[${ci}].itens[${ii}].dataRec=this.value;window.saveNow()">
+              <button class="btn" style="padding:2px 6px" onclick="window.abrirCalendario('fDataRec_${ci}_${ii}',v=>{window.getData().fixas[${ci}].itens[${ii}].dataRec=v;window.saveNow()})"><i class="ti ti-calendar" style="font-size:11px"></i></button>
+            </div>
             <button class="btn" style="padding:3px 7px" onclick="window.delItemFixa(${ci},${ii})">
               <i class="ti ti-x" style="font-size:11px"></i>
             </button>
@@ -1958,6 +1963,11 @@ window.renderFixas=function(){
 }
 window.marcarFixaRec=function(ci,ii){
   data.fixas[ci].itens[ii].rec=data.fixas[ci].itens[ii].valor;
+  // auto-preenche data de recebimento
+  if(!data.fixas[ci].itens[ii].dataRec){
+    const _h=new Date();
+    data.fixas[ci].itens[ii].dataRec=_h.getDate().toString().padStart(2,'0')+'/'+((_h.getMonth()+1).toString().padStart(2,'0'));
+  }
   const badge=document.querySelector(`[data-fixa="${ci}_${ii}"]`);
   if(badge){badge.className='badge bg-g';badge.textContent='✓ Rec.';}
   saveNow();renderDashboard();
@@ -2055,20 +2065,28 @@ window._despStatus=function(d){
 
 window.toggleDesp=function(ci,di){
   data.despesas[ci].itens[di].pago=!data.despesas[ci].itens[di].pago;
+  const pago=data.despesas[ci].itens[di].pago;
+  // auto-preenche data de hoje ao marcar como pago
+  if(pago&&!data.despesas[ci].itens[di].data){
+    const _h=new Date();
+    data.despesas[ci].itens[di].data=_h.getDate().toString().padStart(2,'0')+'/'+((_h.getMonth()+1).toString().padStart(2,'0'));
+    // atualiza o input de data visível se existir
+    const dInput=document.getElementById('dData_'+ci+'_'+di);
+    if(dInput)dInput.value=data.despesas[ci].itens[di].data;
+  }
   // atualiza só o badge clicado sem re-renderizar tudo
   const badge=document.querySelector(`[data-desp="${ci}_${di}"]`);
   if(badge){
-    const pago=data.despesas[ci].itens[di].pago;
-    badge.className='badge '+(pago?'bg-g':'bg-x');
+    badge.className='badge '+(pago?'bg-g':window._despStatus(data.despesas[ci].itens[di])==='vencida'?'bg-x':window._despStatus(data.despesas[ci].itens[di])==='hoje'?'bg-x':window._despStatus(data.despesas[ci].itens[di])==='avencer'?'bg-am':'bg-x');
     badge.textContent=pago?'✓ Pago':'Pendente';
   }
   // atualiza totais da categoria no header
   const tot=data.despesas[ci].itens.reduce((s,d)=>s+(d.valor||0),0);
-  const pago=data.despesas[ci].itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);
+  const totalPago=data.despesas[ci].itens.filter(d=>d.pago).reduce((s,d)=>s+(d.valor||0),0);
   const pagoEl=document.querySelector(`[data-pago="${ci}"]`);
   const pendEl=document.querySelector(`[data-pend="${ci}"]`);
-  if(pagoEl)pagoEl.textContent=brl(pago)+' pago';
-  if(pendEl)pendEl.textContent=brl(tot-pago)+' pend.';
+  if(pagoEl)pagoEl.textContent=brl(totalPago)+' pago';
+  if(pendEl)pendEl.textContent=brl(tot-totalPago)+' pend.';
   saveNow();renderDashboard();
 }
 window.showAC=function(ci,di,val){const list=document.getElementById('acl'+ci+'_'+di);if(!list||!val||val.length<2){if(list)list.style.display='none';return;}const names=new Set();data.despesas.forEach(cat=>cat.itens.forEach(it=>{if(it.nome&&it.nome!==val)names.add(it.nome)}));const f=Array.from(names).filter(n=>n.toLowerCase().includes(val.toLowerCase()));if(!f.length){list.style.display='none';return;}list.innerHTML=f.slice(0,8).map(n=>`<div class="ac-item" onmousedown="window.selectAC(${ci},${di},'${n.replace(/'/g,"\\'")}')">${n}</div>`).join('');list.style.display='block';}
@@ -2099,11 +2117,10 @@ window.showPage=function(p){
   else if(p==='perfis')renderPerfis();
   else if(p==='funcHome')renderFuncionarioHome();
   else if(p==='historico')window.renderHistorico();
+  // sincroniza todos os seletores de mês ao trocar de página
+  ['caixaMesSelect','monthSelectDesktop','despMesSelect','fixasMesSelect'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=cm;});
+  ['caixaAnoSelect','yearSelectDesktop','despAnoSelect','fixasAnoSelect'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=ano;});
   if(p==='caixa'){
-    // sincroniza seletor do caixa com mês atual
-    const _cm=document.getElementById('caixaMesSelect');
-    const _ca=document.getElementById('caixaAnoSelect');
-    if(_cm)_cm.value=cm;if(_ca)_ca.value=ano;
     const _mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
     const _sub=document.getElementById('caixaSub');
     if(_sub)_sub.textContent=(_mesesNm[cm]||cm)+' '+ano;
@@ -2522,6 +2539,23 @@ window.limparDia=async function(idx){
   showToast('Dia '+d.dia+' zerado!');
 }
 
+
+// ====== SELETOR DE MÊS NAS PÁGINAS ======
+window.mudarMesPagina=async function(pagina){
+  const mesEl=document.getElementById(pagina+'MesSelect');
+  const anoEl=document.getElementById(pagina+'AnoSelect');
+  if(!mesEl||!anoEl)return;
+  cm=mesEl.value; ano=anoEl.value;
+  // sincroniza todos os seletores
+  ['caixaMesSelect','monthSelectDesktop',pagina+'MesSelect'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=cm;});
+  ['caixaAnoSelect','yearSelectDesktop',pagina+'AnoSelect'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=ano;});
+  const mesesNm={Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio',Jun:'Junho',Jul:'Julho',Ago:'Agosto',Set:'Setembro',Out:'Outubro',Nov:'Novembro',Dez:'Dezembro'};
+  const sub=document.getElementById('dashSub');if(sub)sub.textContent=(mesesNm[cm]||cm)+' '+ano;
+  await loadMonth(cm);
+  if(pagina==='desp')window.renderDespesas&&window.renderDespesas();
+  if(pagina==='fixas')window.renderFixas&&window.renderFixas();
+}
+
 window.changeMonth=function(src){
   const mob=document.getElementById('monthSelect');
   const des=document.getElementById('monthSelectDesktop');
@@ -2835,7 +2869,23 @@ select option{background:#1e2430;color:#f0f4ff;font-size:13px;padding:6px 10px}
       </div>
 
       <div id="page-fixas" class="tab-panel">
-        <div class="page-header"><div><div class="page-title">Receitas Fixas</div></div><button class="btn btn-primary" onclick="window.addCatFixa()"><i class="ti ti-plus"></i>Nova Categoria</button></div>
+        <div class="page-header"><div><div class="page-title">Receitas Fixas</div></div>
+          <div style="display:flex;align-items:center;gap:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <i class="ti ti-calendar" style="font-size:13px;color:var(--text3)"></i>
+            <select id="fixasMesSelect" onchange="window.mudarMesPagina('fixas')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="Jan">Janeiro</option><option value="Fev">Fevereiro</option><option value="Mar">Março</option>
+              <option value="Abr">Abril</option><option value="Mai">Maio</option><option value="Jun">Junho</option>
+              <option value="Jul">Julho</option><option value="Ago">Agosto</option><option value="Set">Setembro</option>
+              <option value="Out">Outubro</option><option value="Nov">Novembro</option><option value="Dez">Dezembro</option>
+            </select>
+            <select id="fixasAnoSelect" onchange="window.mudarMesPagina('fixas')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="2025">2025</option><option value="2026" selected>2026</option><option value="2027">2027</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="window.addCatFixa()"><i class="ti ti-plus"></i>Nova Categoria</button>
+          </div>
+        </div>
         <div id="fixasPage"></div>
       </div>
 
@@ -2845,7 +2895,23 @@ select option{background:#1e2430;color:#f0f4ff;font-size:13px;padding:6px 10px}
       </div>
 
       <div id="page-despesas" class="tab-panel">
-        <div class="page-header"><div><div class="page-title">Despesas</div></div><button class="btn btn-primary" onclick="window.addCatDesp()"><i class="ti ti-plus"></i>Nova Categoria</button></div>
+        <div class="page-header"><div><div class="page-title">Despesas</div></div>
+          <div style="display:flex;align-items:center;gap:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <i class="ti ti-calendar" style="font-size:13px;color:var(--text3)"></i>
+            <select id="despMesSelect" onchange="window.mudarMesPagina('desp')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="Jan">Janeiro</option><option value="Fev">Fevereiro</option><option value="Mar">Março</option>
+              <option value="Abr">Abril</option><option value="Mai">Maio</option><option value="Jun">Junho</option>
+              <option value="Jul">Julho</option><option value="Ago">Agosto</option><option value="Set">Setembro</option>
+              <option value="Out">Outubro</option><option value="Nov">Novembro</option><option value="Dez">Dezembro</option>
+            </select>
+            <select id="despAnoSelect" onchange="window.mudarMesPagina('desp')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="2025">2025</option><option value="2026" selected>2026</option><option value="2027">2027</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="window.addCatDesp()"><i class="ti ti-plus"></i>Nova Categoria</button>
+          </div>
+        </div>
         <div id="despPage"></div>
       </div>
 
