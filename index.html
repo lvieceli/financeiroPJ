@@ -1889,7 +1889,12 @@ window.caixaInput=function(i,field,val){
 window.caixaAbertManual=function(i,val){data.caixa[i].abert=parseFloat(val)||0;data.caixa[i].abertManual=i>0&&val!=='';window.caixaInput(i,'abert',val);}
 window.renderCaixa=function(){
   const _adminCaixa=isAdmin();
-  document.getElementById('caixaBody').innerHTML=data.caixa.map((d,i)=>`<tr>
+  // dias válidos do mês selecionado
+  const _ordemMNum={Jan:1,Fev:2,Mar:3,Abr:4,Mai:5,Jun:6,Jul:7,Ago:8,Set:9,Out:10,Nov:11,Dez:12};
+  const _mesNum=_ordemMNum[cm]||new Date().getMonth()+1;
+  const _anoNum=parseInt(ano)||new Date().getFullYear();
+  const _diasNoMes=new Date(_anoNum,_mesNum,0).getDate();
+  document.getElementById('caixaBody').innerHTML=data.caixa.slice(0,_diasNoMes).map((d,i)=>`<tr>
     <td style="text-align:center">${d.dia}</td>
     <td><input class="cg-inp" id="abert${i}" value="${d.abert||''}" placeholder="0,00" style="${d.abertManual&&i>0?'color:var(--amber)':''}" oninput="window.caixaAbertManual(${i},this.value)" onblur="if(!this.value&&${i}>0){data.caixa[${i}].abertManual=false;this.style.color='';}"></td>
     <td><input class="cg-inp" id="fech${i}" value="${d.fech||''}" placeholder="0,00" oninput="window.caixaInput(${i},'fech',this.value)"></td>
